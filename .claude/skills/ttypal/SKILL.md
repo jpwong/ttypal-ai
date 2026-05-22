@@ -1,4 +1,5 @@
 ---
+name: ttypal
 description: "Operate serial ports via ttypal. Use when the user needs to send commands to a device over UART/serial, read serial console output, debug embedded Linux boards, interact with a development board, or diagnose serial communication. Also for 'send command to board', 'check serial output', 'what is the board printing', 'run this on the device'."
 allowed-tools: Bash(ttypal-send *) Bash(ttypal-tail *) Bash(ttypal-daemon *) Bash(ttypal-xfer *)
 ---
@@ -9,17 +10,12 @@ You have access to a serial port debug tool called ttypal. It lets you send comm
 
 ## Prerequisites
 
-ttypal must be installed (`pip install ttypal-ai`) and a daemon must be running. Check status first:
+ttypal must be installed (`pip install ttypal-ai`) and a ttypal session must be active. The user may run ttypal in **two modes**:
 
-```bash
-ttypal-daemon status
-```
+1. **Daemon mode** — `ttypal-daemon start -b <board>` runs in background, `ttypal-daemon status` reports it.
+2. **Interactive mode** — user runs `ttypal` directly in another terminal. `ttypal-daemon status` will report "not running" even though the session is active and the socket is available.
 
-If not running, start it:
-
-```bash
-ttypal-daemon start -b <board-name>
-```
+**How to check:** Run `ttypal-daemon status` once. If it reports not running, **ask the user if they already have ttypal open interactively** before trying to start a daemon. If the user confirms an active session (e.g. "already opened", "running interactively", "it's up"), **skip daemon startup and proceed directly** with `ttypal-tail` and `ttypal-send` — they work the same in both modes.
 
 To see available board configs: `ttypal-daemon start` (shows selection menu, not suitable for non-interactive use — use `-b` flag).
 
@@ -98,17 +94,15 @@ ttypal-daemon stop -b myboard
 # 1. Check if daemon is running
 ttypal-daemon status
 
-# 2. Start if needed
+# 2. If not running, ASK the user first — they may already have ttypal open interactively.
+#    Only start daemon if user confirms no active session:
 ttypal-daemon start -b myboard
 
-# 3. Explore the device
+# 3. Explore the device (works in both daemon and interactive mode)
 ttypal-send --wait "# " "uname -a"
 ttypal-send --wait "# " "cat /etc/os-release"
 ttypal-send --wait "# " "ps aux"
 
 # 4. Read recent logs
 ttypal-tail -n 30
-
-# 5. When done, stop daemon
-ttypal-daemon stop
 ```
