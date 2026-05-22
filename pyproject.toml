@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ttypal-ai"
-version = "0.1.0"
+version = "0.2.0"
 description = "Serial port debug tool for humans and AI agents"
 requires-python = ">=3.9"
 license = {text = "MIT"}
@@ -29,6 +29,7 @@ ttypal = "ttypal.main:main"
 ttypal-send = "ttypal.cli_send:main"
 ttypal-tail = "ttypal.cli_tail:main"
 ttypal-daemon = "ttypal.cli_headless:main"
+ttypal-xfer = "ttypal.cli_xfer:main"
 
 [tool.setuptools.packages.find]
 include = ["ttypal*"]

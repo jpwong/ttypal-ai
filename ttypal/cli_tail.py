@@ -3,49 +3,77 @@ import argparse
 import os
 import sys
 import time
-import glob
 from pathlib import Path
 
+from .config import load_board, list_boards
+from .logger import SESSION_MARKER_PREFIX
 
-LOG_BASE = Path.home() / "ttypal-logs"
+
+def _get_log_dir(board):
+    cfg = load_board(board)
+    if cfg:
+        log_cfg = cfg.get("log", {})
+        directory = log_cfg.get("directory", "~/ttypal-logs")
+        d = Path(os.path.expanduser(directory)) / board
+        if d.exists():
+            return d
+
+    fallback = Path.home() / "ttypal-logs" / board
+    if fallback.exists():
+        return fallback
+
+    print(f"日志目录不存在: {board}", file=sys.stderr)
+    sys.exit(1)
 
 
 def find_board_log_dir(board=None):
     if board:
-        d = LOG_BASE / board
-        if d.exists():
-            return d
-        print(f"日志目录不存在: {d}", file=sys.stderr)
-        sys.exit(1)
+        return _get_log_dir(board)
 
-    if not LOG_BASE.exists():
-        print(f"日志目录不存在: {LOG_BASE}", file=sys.stderr)
-        sys.exit(1)
-
-    boards = sorted(LOG_BASE.iterdir())
+    boards = list_boards()
     if len(boards) == 1:
-        return boards[0]
+        return _get_log_dir(boards[0])
     if len(boards) > 1:
-        print("多个板子日志，请用 -b 指定:", file=sys.stderr)
+        print("多个板子配置，请用 -b 指定:", file=sys.stderr)
         for b in boards:
-            print(f"  {b.name}", file=sys.stderr)
+            print(f"  {b}", file=sys.stderr)
         sys.exit(1)
-    print("无日志", file=sys.stderr)
+    print("无板子配置", file=sys.stderr)
     sys.exit(1)
 
 
-def latest_log(log_dir):
+def _read_session_id(filepath):
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            first_line = f.readline().strip()
+            if first_line.startswith(SESSION_MARKER_PREFIX):
+                return first_line[len(SESSION_MARKER_PREFIX):]
+    except Exception:
+        pass
+    return None
+
+
+def tail(log_dir, n):
     logs = sorted(log_dir.glob("*.log"))
     if not logs:
-        print("无日志文件", file=sys.stderr)
-        sys.exit(1)
-    return logs[-1]
+        return []
 
+    current_session = _read_session_id(logs[-1])
+    collected = []
 
-def tail(filepath, n):
-    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-        lines = f.readlines()
-        return lines[-n:]
+    for log_file in reversed(logs):
+        session_id = _read_session_id(log_file)
+        if current_session and session_id != current_session:
+            break
+
+        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+            lines = [l for l in f.readlines() if not l.startswith(SESSION_MARKER_PREFIX)]
+
+        collected = lines + collected
+        if len(collected) >= n:
+            break
+
+    return collected[-n:]
 
 
 def follow(filepath):
@@ -55,8 +83,9 @@ def follow(filepath):
             while True:
                 line = f.readline()
                 if line:
-                    sys.stdout.write(line)
-                    sys.stdout.flush()
+                    if not line.startswith(SESSION_MARKER_PREFIX):
+                        sys.stdout.write(line)
+                        sys.stdout.flush()
                 else:
                     time.sleep(0.1)
         except KeyboardInterrupt:
@@ -71,14 +100,15 @@ def main():
     args = parser.parse_args()
 
     log_dir = find_board_log_dir(args.board)
-    log_file = latest_log(log_dir)
 
-    lines = tail(log_file, args.lines)
+    lines = tail(log_dir, args.lines)
     for line in lines:
         sys.stdout.write(line)
 
     if args.follow:
-        follow(log_file)
+        logs = sorted(log_dir.glob("*.log"))
+        if logs:
+            follow(logs[-1])
 
 
 if __name__ == "__main__":

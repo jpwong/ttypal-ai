@@ -1,6 +1,6 @@
 ---
 description: "Operate serial ports via ttypal. Use when the user needs to send commands to a device over UART/serial, read serial console output, debug embedded Linux boards, interact with a development board, or diagnose serial communication. Also for 'send command to board', 'check serial output', 'what is the board printing', 'run this on the device'."
-allowed-tools: Bash(ttypal-send *) Bash(ttypal-tail *) Bash(ttypal-daemon *)
+allowed-tools: Bash(ttypal-send *) Bash(ttypal-tail *) Bash(ttypal-daemon *) Bash(ttypal-xfer *)
 ---
 
 # ttypal — Serial Port Debug Tool for AI
@@ -9,7 +9,7 @@ You have access to a serial port debug tool called ttypal. It lets you send comm
 
 ## Prerequisites
 
-ttypal must be installed (`pip install ttypal`) and a daemon must be running. Check status first:
+ttypal must be installed (`pip install ttypal-ai`) and a daemon must be running. Check status first:
 
 ```bash
 ttypal-daemon status
@@ -74,7 +74,17 @@ ttypal-daemon stop -b myboard
 
 ## Capability boundaries — READ THIS
 
-1. **DO NOT attempt file transfer over serial.** The serial console has background noise (kernel messages, application logs) that will corrupt data. Use TFTP/SCP/network for file transfer instead.
+1. **File transfer uses ZMODEM over serial.** Use `ttypal-xfer` for file transfer. It bridges host-side `lrzsz` with the device's `rz`/`sz`. Requires `lrzsz` on host and device.
+
+   ```bash
+   # Send file to device
+   ttypal-xfer --put local_file.bin
+
+   # Receive file from device
+   ttypal-xfer --get /remote/path ./local_dir
+   ```
+
+   **Known issue (RK platforms):** ZMODEM binary data may trigger FIQ debugger. If board enters `debug>` prompt, send `console` to recover. For large binary transfers, consider TFTP/SCP via network instead.
 
 2. **Long output may be unreliable.** Commands that produce hundreds of lines (like `cat` of large files) may have data interleaved with background device messages. For large outputs, prefer writing results to a file on the device and transferring via network.
 

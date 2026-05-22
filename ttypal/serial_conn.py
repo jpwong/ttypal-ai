@@ -20,6 +20,7 @@ class SerialConnection:
         self._lock = threading.Lock()
         self._recorder = recorder
         self._lock_fd = None
+        self._paused = threading.Event()
 
     @staticmethod
     def _parse_parity(p):
@@ -65,8 +66,17 @@ class SerialConnection:
             self._serial.close()
         self._release_lock()
 
+    def pause(self):
+        self._paused.set()
+
+    def resume(self):
+        self._paused.clear()
+
     def read(self, size=None):
         if not self._serial:
+            return b""
+        if self._paused.is_set():
+            time.sleep(0.05)
             return b""
         with self._lock:
             waiting = self._serial.in_waiting

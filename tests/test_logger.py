@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 
-from ttypal.logger import Logger
+from ttypal.logger import Logger, SESSION_MARKER_PREFIX
 
 
 def test_logger_creates_file(tmp_path):
@@ -22,9 +22,11 @@ def test_logger_adds_timestamp(tmp_path):
     logger.close()
 
     content = (tmp_path / "testboard").glob("*.log").__next__().read_text()
-    # timestamp format: [HH:MM:SS]
-    assert content.startswith("[")
-    assert "] line1\n" in content
+    lines = content.strip().split("\n")
+    # 首行是 session 标记，第二行开始是日志
+    assert lines[0].startswith(SESSION_MARKER_PREFIX)
+    assert lines[1].startswith("[")
+    assert "] line1" in lines[1]
 
 
 def test_logger_rotation(tmp_path):
@@ -46,6 +48,8 @@ def test_logger_multiline(tmp_path):
 
     content = (tmp_path / "testboard").glob("*.log").__next__().read_text()
     lines = content.strip().split("\n")
-    assert len(lines) == 3
-    for line in lines:
+    # 首行 session 标记 + 3 行日志
+    assert lines[0].startswith(SESSION_MARKER_PREFIX)
+    assert len(lines) == 4
+    for line in lines[1:]:
         assert line.startswith("[")

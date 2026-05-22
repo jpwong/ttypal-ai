@@ -1,6 +1,0 @@
-{
-  "name": "ttypal",
-  "description": "Serial port debugging tool for embedded Linux boards — lets AI send commands and read output via UART",
-  "version": "0.1.0",
-  "author": { "name": "hjp" }
-}

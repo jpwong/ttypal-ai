@@ -4,6 +4,8 @@ import socket
 import threading
 import time
 
+from .zmodem_transfer import ZmodemTransfer
+
 
 class SocketServer:
     def __init__(self, serial_conn, logger, socket_path, default_prompt="# "):
@@ -80,6 +82,21 @@ class SocketServer:
                 output = self._wait_for_prompt_after_cmd(
                     payload.strip(), prompt, timeout)
                 resp = {"status": "ok", "output": output}
+
+            elif cmd == "xmodem_send" or cmd == "zmodem_send":
+                filepath = req["file"]
+                timeout = req.get("timeout", 120)
+
+                xfer = ZmodemTransfer(self.conn, self.logger)
+                resp = xfer.send_file(filepath, timeout=timeout)
+
+            elif cmd == "xmodem_recv" or cmd == "zmodem_recv":
+                remote_file = req["remote_file"]
+                local_path = req.get("local_path", "/tmp")
+                timeout = req.get("timeout", 120)
+
+                xfer = ZmodemTransfer(self.conn, self.logger)
+                resp = xfer.receive_file(remote_file, local_path, timeout=timeout)
 
             else:
                 resp = {"status": "error", "message": f"unknown cmd: {cmd}"}
