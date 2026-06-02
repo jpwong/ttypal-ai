@@ -83,6 +83,54 @@ class SocketServer:
                     payload.strip(), prompt, timeout)
                 resp = {"status": "ok", "output": output}
 
+            elif cmd == "expect_send":
+                expect = req["expect"]
+                payload = req["data"]
+                timeout = req.get("timeout", 10)
+                if not payload.endswith("\n"):
+                    payload += "\r\n"
+
+                ok = self._wait_for_string(expect, timeout)
+                if ok:
+                    self.conn.write(payload)
+                    resp = {"status": "ok"}
+                else:
+                    resp = {"status": "error", "message": f"等待 '{expect}' 超时"}
+
+            elif cmd == "expect_send_wait":
+                expect = req["expect"]
+                payload = req["data"]
+                prompt = req.get("prompt", self.default_prompt)
+                timeout = req.get("timeout", 10)
+                if not payload.endswith("\n"):
+                    payload += "\r\n"
+
+                ok = self._wait_for_string(expect, timeout)
+                if not ok:
+                    resp = {"status": "error", "message": f"等待 '{expect}' 超时"}
+                else:
+                    self.conn.write(payload)
+                    output = self._wait_for_prompt_after_cmd(
+                        payload.strip(), prompt, timeout)
+                    resp = {"status": "ok", "output": output}
+
+            elif cmd == "probe":
+                timeout = req.get("timeout", 2)
+                log_path = self.logger.current_log
+                mark = os.path.getsize(log_path)
+                self.conn.write(b"\r\n")
+                time.sleep(timeout)
+                with open(log_path, "rb") as f:
+                    f.seek(mark)
+                    new_data = f.read().decode("utf-8", errors="replace")
+                lines = []
+                for line in new_data.split("\n"):
+                    if line.startswith("[") and "] " in line:
+                        line = line[line.index("] ") + 2:]
+                    if line.strip():
+                        lines.append(line)
+                resp = {"status": "ok", "output": "\n".join(lines)}
+
             elif cmd == "xmodem_send" or cmd == "zmodem_send":
                 filepath = req["file"]
                 timeout = req.get("timeout", 120)
@@ -109,6 +157,25 @@ class SocketServer:
                 pass
         finally:
             client.close()
+
+    def _wait_for_string(self, target, timeout):
+        """等待日志中出现指定字符串（检查最近内容）"""
+        deadline = time.monotonic() + timeout
+        log_path = self.logger.current_log
+        file_size = os.path.getsize(log_path)
+        # 从文件末尾往前看最多 4KB，覆盖最近输出
+        look_back = min(file_size, 4096)
+        start_pos = file_size - look_back
+
+        while time.monotonic() < deadline:
+            with open(log_path, "rb") as f:
+                f.seek(start_pos)
+                content = f.read().decode("utf-8", errors="replace")
+
+            if target in content:
+                return True
+            time.sleep(0.05)
+        return False
 
     def _wait_for_prompt_after_cmd(self, cmd_text, prompt, timeout):
         """发送命令后，在日志中找到命令回显，返回回显之后到下一个 prompt 之间的内容"""

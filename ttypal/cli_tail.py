@@ -92,6 +92,21 @@ def follow(filepath):
             pass
 
 
+def _is_daemon_alive(board):
+    sock_file = Path(f"/tmp/ttypal-{board}.sock")
+    if sock_file.is_socket():
+        return True
+    pid_file = Path(f"/tmp/ttypal-{board}.pid")
+    if not pid_file.exists():
+        return False
+    try:
+        pid = int(pid_file.read_text().strip())
+        os.kill(pid, 0)
+        return True
+    except (ValueError, ProcessLookupError, PermissionError):
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="查看 ttypal 串口日志")
     parser.add_argument("-n", "--lines", type=int, default=20, help="显示最后 N 行 (默认 20)")
@@ -100,6 +115,13 @@ def main():
     args = parser.parse_args()
 
     log_dir = find_board_log_dir(args.board)
+    board_name = args.board or log_dir.name
+
+    if not _is_daemon_alive(board_name):
+        if args.follow:
+            print(f"ttypal ({board_name}) 未运行，无法跟踪实时输出", file=sys.stderr)
+            sys.exit(1)
+        print(f"注意: ttypal ({board_name}) 未运行，以下为历史日志", file=sys.stderr)
 
     lines = tail(log_dir, args.lines)
     for line in lines:

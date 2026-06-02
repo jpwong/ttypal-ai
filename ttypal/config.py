@@ -36,6 +36,7 @@ DEFAULT_CONFIG = {
         "directory": str(Path.home() / "ttypal-logs"),
         "ring_size": 100000,
     },
+    "macro": {},
 }
 
 COMMON_BAUDRATES = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]

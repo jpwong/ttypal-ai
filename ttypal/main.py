@@ -84,7 +84,10 @@ def main():
     prompt = sock_cfg.get("prompt", "# ")
 
     socket_srv = SocketServer(conn, logger, sock_path, prompt)
-    terminal = Terminal(conn, logger, socket_srv)
+
+    from ttypal.macro import Macro
+    macro = Macro.from_config(cfg)
+    terminal = Terminal(conn, logger, socket_srv, macro)
 
     try:
         terminal.start()

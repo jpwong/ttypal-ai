@@ -9,6 +9,7 @@ Serial port debug tool designed for both humans and AI agents.
 - External command injection via Unix socket (for AI/scripts)
 - ZMODEM file transfer over serial
 - Record/replay serial sessions
+- Macro recording and playback (F1-F12 hotkeys)
 - Board config management
 - Claude Code skill for AI-driven serial debugging
 
@@ -39,6 +40,18 @@ ttypal-send --wait "# " "uname -a"
 # Read recent serial output
 ttypal-tail -n 50
 ```
+
+## Macros
+
+Bind command sequences to F1-F12 keys in your board config:
+
+```toml
+[macro]
+F1 = ["echo hello", "sleep 0.5", "ls -la"]
+F2 = ["reboot"]
+```
+
+Or record interactively: `Ctrl-T r` to start, `Ctrl-T s` to stop and save.
 
 ## Claude Code Integration
 

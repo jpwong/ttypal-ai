@@ -1,5 +1,6 @@
 import os
 import select
+import shlex
 import shutil
 import subprocess
 import threading
@@ -74,9 +75,31 @@ class ZmodemTransfer:
         self._flush_input()
 
         try:
-            self._serial.write(f"sz {remote_file}\r\n".encode())
-            time.sleep(0.5)
-            self._flush_input()
+            # -e: ZDLE-escape all control chars to prevent tty onlcr (\n→\r\n)
+            self._serial.write(
+                f"sz -e {shlex.quote(remote_file)}\r\n".encode())
+
+            # Wait for ZRQINIT frame, skip command echo
+            buf = b""
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                self._serial.timeout = 0.1
+                data = self._serial.read(max(self._serial.in_waiting, 1))
+                if data:
+                    buf += data
+                    if b"**\x18B" in buf:
+                        break
+
+            if b"**\x18B" not in buf:
+                return {"status": "error", "message": "设备未启动 ZMODEM (sz 不可用或文件不存在)"}
+
+            zmodem_start = buf.index(b"**\x18B")
+            zmodem_data = buf[zmodem_start:]
+
+            # Drain any trailing bytes from ZRQINIT frame
+            time.sleep(0.05)
+            while self._serial.in_waiting:
+                zmodem_data += self._serial.read(self._serial.in_waiting)
 
             proc = subprocess.Popen(
                 [rz_path, "--zmodem", "--overwrite"],
@@ -86,9 +109,13 @@ class ZmodemTransfer:
                 cwd=local_dir,
             )
 
+            # Feed ZRQINIT to rz then bridge
+            proc.stdin.write(zmodem_data)
+            proc.stdin.flush()
+
             ok = self._bridge(proc, timeout)
 
-            if ok and proc.returncode == 0:
+            if ok:
                 basename = os.path.basename(remote_file)
                 local_path = os.path.join(local_dir, basename)
                 if os.path.exists(local_path):
@@ -128,7 +155,6 @@ class ZmodemTransfer:
                 if time.monotonic() > deadline:
                     break
                 try:
-                    # 用 select 避免阻塞在 read 上
                     r, _, _ = select.select([proc.stdout], [], [], 0.1)
                     if r:
                         data = proc.stdout.read1(4096)

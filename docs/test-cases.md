@@ -29,6 +29,7 @@
 | test_socket_send | 通过 Unix socket 发送命令，验证命令被写入串口 |
 | test_socket_send_wait | 通过 socket 发送 send_wait 命令，验证从日志中匹配到 prompt 后返回正确输出 |
 | test_logger_captures_replay_output | 验证 replay 回放数据正确写入日志文件 |
+| test_socket_probe | 通过 socket 发送 probe 命令，验证发送回车并返回设备响应 |
 
 ## test_logger.py — 日志记录器
 
@@ -105,3 +106,25 @@
 | test_logger_no_timestamp | timestamp_format="" 时日志不添加时间戳，直接写入原始数据 |
 | test_tail_works_without_timestamp | 无时间戳模式下 tail 正确读取和过滤 session 标记 |
 | test_tail_cross_session_without_timestamp | 无时间戳模式下 session 边界隔离仍然有效 |
+
+### Daemon 存活检测
+
+| 用例 | 说明 |
+|------|------|
+| test_daemon_alive_no_pid_file | 无 PID 文件时返回 False |
+| test_daemon_alive_stale_pid | PID 文件存在但进程已死时返回 False |
+| test_daemon_alive_current_process | PID 文件指向存活进程时返回 True |
+| test_daemon_alive_socket_exists | Unix socket 文件存在时返回 True（使用真实 AF_UNIX socket） |
+
+## test_macro.py — 宏录制/播放
+
+| 用例 | 说明 |
+|------|------|
+| test_from_config_empty | 空配置创建无绑定的 Macro 实例 |
+| test_from_config_with_bindings | 从配置加载 F 键绑定 |
+| test_play_sends_commands | 播放宏时按序发送命令到串口 |
+| test_play_sleep_command | sleep 特殊指令在播放时产生延迟 |
+| test_play_unbound_key | 播放未绑定的键返回 False |
+| test_record_and_stop | 录制命令并停止后返回正确的命令列表 |
+| test_save_binding | 保存绑定后 has_binding 返回 True |
+| test_fkey_escape_map_covers_all_keys | F1-F12 所有键都有 escape sequence 映射 |

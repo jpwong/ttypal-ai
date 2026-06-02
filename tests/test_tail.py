@@ -1,8 +1,10 @@
 import tempfile
+import os
+import socket
 from pathlib import Path
 
 from ttypal.logger import Logger, SESSION_MARKER_PREFIX
-from ttypal.cli_tail import tail, _read_session_id
+from ttypal.cli_tail import tail, _read_session_id, _is_daemon_alive
 
 
 def test_session_marker_in_new_file(tmp_path):
@@ -177,3 +179,37 @@ def test_tail_cross_session_without_timestamp(tmp_path):
     lines = tail(tmp_path / "testboard", 100)
     assert len(lines) == 1
     assert "new_only" in lines[0]
+
+
+def test_daemon_alive_no_pid_file():
+    assert _is_daemon_alive("nonexistent_board_xyz") is False
+
+
+def test_daemon_alive_stale_pid(tmp_path, monkeypatch):
+    pid_file = Path("/tmp/ttypal-testdaemon.pid")
+    pid_file.write_text("99999999")
+    try:
+        assert _is_daemon_alive("testdaemon") is False
+    finally:
+        pid_file.unlink(missing_ok=True)
+
+
+def test_daemon_alive_current_process(tmp_path):
+    pid_file = Path("/tmp/ttypal-testdaemon2.pid")
+    pid_file.write_text(str(os.getpid()))
+    try:
+        assert _is_daemon_alive("testdaemon2") is True
+    finally:
+        pid_file.unlink(missing_ok=True)
+
+
+def test_daemon_alive_socket_exists(tmp_path):
+    sock_file = Path("/tmp/ttypal-testsock.sock")
+    sock_file.unlink(missing_ok=True)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.bind(str(sock_file))
+        assert _is_daemon_alive("testsock") is True
+    finally:
+        sock.close()
+        sock_file.unlink(missing_ok=True)

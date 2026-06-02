@@ -128,3 +128,45 @@ def test_logger_captures_replay_output(tmp_path):
     content = log_files[0].read_text()
     assert "root@board" in content
     assert "file1" in content
+
+
+def test_socket_probe(tmp_path):
+    rec_file = tmp_path / "session_probe.rec"
+    events = [
+        {"t": 0.0, "dir": "rx", "hex": b"root@board:~# ".hex()},
+    ]
+    with open(rec_file, "w") as f:
+        for e in events:
+            f.write(json.dumps(e) + "\n")
+
+    backend = ReplayBackend(str(rec_file), realtime=True)
+    backend.open()
+
+    logger = Logger("probe_test", directory=str(tmp_path / "logs_probe"))
+    sock_path = str(tmp_path / "probe.sock")
+    srv = SocketServer(backend, logger, sock_path, "# ")
+    srv.start()
+
+    time.sleep(0.2)
+
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(sock_path)
+    req = json.dumps({"cmd": "probe", "timeout": 1}) + "\n"
+    s.sendall(req.encode())
+    s.shutdown(socket.SHUT_WR)
+
+    resp_data = b""
+    while True:
+        chunk = s.recv(4096)
+        if not chunk:
+            break
+        resp_data += chunk
+    s.close()
+
+    resp = json.loads(resp_data)
+    assert resp["status"] == "ok"
+    assert "output" in resp
+    assert backend.sent_data == b"\r\n"
+
+    srv.stop()
+    logger.close()

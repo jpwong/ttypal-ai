@@ -19,6 +19,7 @@ ttypal/                     # Python module
 ├── cli_tail.py             # ttypal-tail command (cross-file, session-bounded)
 ├── cli_xfer.py             # ttypal-xfer command (ZMODEM file transfer)
 ├── cli_headless.py         # ttypal-daemon command (background daemon)
+├── macro.py                # F1-F12 macro recording and playback
 ├── xmodem_transfer.py      # XMODEM transfer (deprecated, kept for reference)
 └── zmodem_transfer.py      # ZMODEM transfer via lrzsz bridge
 
@@ -28,7 +29,8 @@ tests/
 ├── test_logger.py          # Unit: timestamp, rotation, session marker
 ├── test_recorder.py        # Unit: recording and ring buffer
 ├── test_replay.py          # Unit: replay backend
-├── test_tail.py            # Unit: tail cross-file, session boundary, no-timestamp
+├── test_tail.py            # Unit: tail cross-file, session boundary, daemon detection
+├── test_macro.py           # Unit: macro load, playback, recording, save
 ├── test_integration.py     # Integration: socket → serial → logger
 ├── test_ai_e2e.py          # E2E: AI sends command, verifies correct response
 ├── test_regression.py      # Regression: real device recording replay
@@ -90,4 +92,4 @@ JSONL, one event per line: `{"t": seconds, "dir": "rx"|"tx", "hex": "hexstring"}
 - send_wait prompt matching is fragile with output containing `#`
 - Replay TX-triggered mode (currently plays RX sequentially, ignores input)
 - CI/CD pipeline (GitHub Actions)
-- **已知问题 (RK平台):** ZMODEM 二进制数据流可能包含 FIQ debugger 触发序列，导致板子进入 debug 模式（输入 `console` 退出）。测试时避免使用含 FIQ 字符的随机数据
+- **已知问题 (RK平台 FIQ Debugger):** ZMODEM 传输中文件数据或协议帧均可能触发 FIQ debugger，目前无有效软件规避方法。文件越大触发概率越高，<100KB 基本可靠，大文件请用网络传输或关闭 FIQ debugger (`no_fiq_debugger`)

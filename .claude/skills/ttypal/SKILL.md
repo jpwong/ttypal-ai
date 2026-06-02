@@ -22,6 +22,9 @@ To see available board configs: `ttypal-daemon start` (shows selection menu, not
 ## Sending commands
 
 ```bash
+# Probe device state (send Enter, return response)
+ttypal-send --probe
+
 # Fire-and-forget (no response needed)
 ttypal-send "reboot"
 
@@ -31,9 +34,30 @@ ttypal-send --wait "# " "uname -a"
 # With custom timeout (default 10s)
 ttypal-send --wait "# " --timeout 30 "long_running_command"
 
+# Wait for a string to appear BEFORE sending (for login, prompts, etc.)
+ttypal-send --wait-for "login:" "root"
+ttypal-send --wait-for "Password:" "mypassword"
+
+# Combine: wait for string, send, then wait for prompt
+ttypal-send --wait-for "login:" --wait "Password:" "root"
+ttypal-send --wait-for "Password:" --wait "# " "mypassword"
+
 # Specify socket if multiple boards are connected
 ttypal-send --socket /tmp/ttypal-myboard.sock "ls"
 ```
+
+### Login sequence
+
+For devices that require login, use `--wait-for` to synchronize with the login prompts:
+
+```bash
+# Step 1: wait for login prompt, then send username
+ttypal-send --wait-for "login:" "root"
+# Step 2: wait for password prompt, then send password
+ttypal-send --wait-for "Password:" --wait "# " "mypassword"
+```
+
+**Do NOT** blindly send username/password with sleep — use `--wait-for` to ensure proper sequencing.
 
 ### Prompt matching
 
@@ -80,7 +104,7 @@ ttypal-daemon stop -b myboard
    ttypal-xfer --get /remote/path ./local_dir
    ```
 
-   **Known issue (RK platforms):** ZMODEM binary data may trigger FIQ debugger. If board enters `debug>` prompt, send `console` to recover. For large binary transfers, consider TFTP/SCP via network instead.
+   **Known issue (RK platforms with FIQ debugger):** ZMODEM transfers may trigger FIQ debugger — both file data and protocol frames (CRC, headers) can contain the trigger sequence. No effective software workaround exists. Files <100KB generally reliable; larger files increasingly likely to trigger `debug>` mode (send `console` to recover). For large files, use TFTP/SCP via network or disable FIQ debugger (`no_fiq_debugger` boot param).
 
 2. **Long output may be unreliable.** Commands that produce hundreds of lines (like `cat` of large files) may have data interleaved with background device messages. For large outputs, prefer writing results to a file on the device and transferring via network.
 
@@ -98,11 +122,13 @@ ttypal-daemon status
 #    Only start daemon if user confirms no active session:
 ttypal-daemon start -b myboard
 
-# 3. Explore the device (works in both daemon and interactive mode)
+# 3. Probe device state (what prompt comes back?)
+ttypal-send --probe
+
+# 4. Based on probe result, login if needed or proceed with commands
 ttypal-send --wait "# " "uname -a"
 ttypal-send --wait "# " "cat /etc/os-release"
-ttypal-send --wait "# " "ps aux"
 
-# 4. Read recent logs
+# 5. Read recent logs
 ttypal-tail -n 30
 ```

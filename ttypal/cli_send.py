@@ -21,15 +21,25 @@ def find_socket():
 
 def main():
     parser = argparse.ArgumentParser(description="向 ttypal 发送串口命令")
-    parser.add_argument("command", help="要发送的命令")
+    parser.add_argument("command", nargs="?", default="", help="要发送的命令")
     parser.add_argument("--socket", "-s", help="ttypal socket 路径")
     parser.add_argument("--wait", "-w", metavar="PROMPT", help="等待指定 prompt 后返回输出")
+    parser.add_argument("--wait-for", metavar="STRING", help="发送前等待指定字符串出现")
+    parser.add_argument("--probe", action="store_true", help="发送回车并返回设备响应（探测设备状态）")
     parser.add_argument("--timeout", "-t", type=float, default=10, help="等待超时秒数 (默认 10)")
     args = parser.parse_args()
 
     sock_path = args.socket or find_socket()
 
-    if args.wait:
+    if args.probe:
+        req = {"cmd": "probe", "timeout": args.timeout if args.timeout != 10 else 2}
+    elif args.wait_for and args.wait:
+        req = {"cmd": "expect_send_wait", "expect": args.wait_for,
+               "data": args.command, "prompt": args.wait, "timeout": args.timeout}
+    elif args.wait_for:
+        req = {"cmd": "expect_send", "expect": args.wait_for,
+               "data": args.command, "timeout": args.timeout}
+    elif args.wait:
         req = {"cmd": "send_wait", "data": args.command,
                "prompt": args.wait, "timeout": args.timeout}
     else:
