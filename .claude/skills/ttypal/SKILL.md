@@ -2,6 +2,12 @@
 name: ttypal
 description: "Operate serial ports via ttypal. Use when the user needs to send commands to a device over UART/serial, read serial console output, debug embedded Linux boards, interact with a development board, or diagnose serial communication. Also for 'send command to board', 'check serial output', 'what is the board printing', 'run this on the device'."
 allowed-tools: Bash(ttypal-send *) Bash(ttypal-tail *) Bash(ttypal-daemon *) Bash(ttypal-xfer *)
+tags:
+  - serial
+  - uart
+  - embedded
+  - debug
+  - console
 ---
 
 # ttypal — Serial Port Debug Tool for AI
