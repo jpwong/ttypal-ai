@@ -36,4 +36,4 @@ Every feature change MUST include a documentation scan:
 
 ## Current Version
 
-v0.2.0
+v0.3.0

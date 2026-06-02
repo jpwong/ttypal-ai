@@ -8,7 +8,7 @@
 | 设备 | RK3562 EVB2, Buildroot, BusyBox lrzsz (`rz` / `sz`) |
 | 串口 | /dev/ttyUSB1, 1500000 baud (8N1, no flow control) |
 | 传输工具 | ttypal-xfer (ZMODEM via lrzsz 桥接) |
-| 测试日期 | 2026-06-02 (v0.2.0, sz -e 修复后) |
+| 测试日期 | 2026-06-02 (v0.3.0, sz -e 修复后) |
 
 ## 性能测试
 
@@ -70,7 +70,7 @@
 - 大文件优先使用网络传输 (TFTP/SCP)
 - 彻底解决：内核配置 `CONFIG_FIQ_DEBUGGER=n` 或启动参数 `no_fiq_debugger`
 
-### sz -e 修复 (v0.2.0)
+### sz -e 修复 (v0.3.0)
 
 **问题:** 接收文件时（设备 `sz` → 主机 `rz`），设备 tty 的 `onlcr` 标志将数据中的 `\x0a` (LF) 转换为 `\x0d\x0a` (CRLF)，导致二进制文件校验失败。
 
