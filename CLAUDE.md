@@ -25,6 +25,12 @@ Every feature change MUST include a documentation scan:
 3. New test cases → update docs/test-cases.md
 4. New manual test scenarios → update docs/manual-test-cases.md
 
+### Testing Requirements
+Every code change MUST follow this testing workflow:
+1. **Automated tests first**: Run `pytest tests/` and ensure all tests pass before proceeding
+2. **Real machine regression**: Ask user if real hardware testing conditions allow; if yes, run relevant test cases from docs/manual-test-cases.md
+3. **Record new test cases**: When bugs or edge cases are discovered during testing, add them to the appropriate test document
+
 ## Documentation Index
 
 - [docs/architecture.md](docs/architecture.md) — project structure, design decisions, known issues
