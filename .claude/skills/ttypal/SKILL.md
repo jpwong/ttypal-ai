@@ -25,6 +25,24 @@ ttypal must be installed (`pip install ttypal-ai`) and a ttypal session must be 
 
 To see available board configs: `ttypal-daemon start` (shows selection menu, not suitable for non-interactive use — use `-b` flag).
 
+## Multi-board
+
+When multiple boards are connected, all commands use `-b BOARD` to select which board to target:
+
+```bash
+# Discover active instances
+ls /tmp/ttypal-*.sock    # socket filename suffix = board name
+
+# Use -b with all commands
+ttypal-send -b myboard --probe
+ttypal-tail -b myboard -n 20
+ttypal-xfer -b myboard --put file.bin
+```
+
+If only one instance is running, `-b` is optional — commands auto-detect it. If multiple instances are running and `-b` is omitted, commands will error with a list of available boards.
+
+The `--socket` flag is available as a low-level override (e.g. for non-standard socket paths), but `-b` is the preferred interface.
+
 ## Sending commands
 
 ```bash
@@ -48,22 +66,62 @@ ttypal-send --wait-for "Password:" "mypassword"
 ttypal-send --wait-for "login:" --wait "Password:" "root"
 ttypal-send --wait-for "Password:" --wait "# " "mypassword"
 
-# Specify socket if multiple boards are connected
-ttypal-send --socket /tmp/ttypal-myboard.sock "ls"
+# Specify board if multiple boards are connected
+ttypal-send -b myboard "ls"
 ```
 
 ### Login sequence
 
-For devices that require login, use `--wait-for` to synchronize with the login prompts:
+**Step 1: Decide if login is needed — use `--probe` first**
 
 ```bash
-# Step 1: wait for login prompt, then send username
-ttypal-send --wait-for "login:" "root"
-# Step 2: wait for password prompt, then send password
+ttypal-send -b <board> --probe
+```
+
+Interpret the response:
+- Returns a shell prompt (`# `, `$ `, or `root@host:/`) → **already logged in, skip login**
+- Returns `login:` → need full login (username + password)
+- Returns `Password:` → username already entered, only password needed
+- Returns nothing / blank → device may be off or serial disconnected, ask user
+
+**Do NOT** blindly send login credentials — if already at a shell, sending "root" as a command will confuse the session.
+
+**Step 2: Login with `--wait-for`**
+
+```bash
+# Full login (login: prompt detected)
+ttypal-send --wait-for "login:" --wait "Password:" "root"
+ttypal-send --wait-for "Password:" --wait "# " "mypassword"
+
+# Only password needed (Password: prompt detected)
 ttypal-send --wait-for "Password:" --wait "# " "mypassword"
 ```
 
-**Do NOT** blindly send username/password with sleep — use `--wait-for` to ensure proper sequencing.
+**Step 3: Verify login succeeded**
+
+```bash
+ttypal-send -b <board> --probe
+```
+
+If response shows `# ` or `$ `, login succeeded. If `Login incorrect` or `login:` appears again, login failed.
+
+**Login failure handling:**
+
+- Retry at most **3 times** (password may have been mistyped, or serial noise corrupted input)
+- Between retries, reset state by sending Ctrl-C then probing again:
+  ```bash
+  ttypal-send $'\x03'          # send Ctrl-C to clear any partial input
+  ttypal-send -b <board> --probe
+  ```
+- After 3 failures, **stop and report to user** — do not keep retrying. The user needs to check: correct password, serial baud rate, device state.
+
+### `--wait-for` behavior
+
+- Default timeout: **10s** (override with `--timeout N`)
+- On timeout: the command is **not sent**, and `ttypal-send` exits with error (exit code 1)
+- If the target string is already present in recent output, it matches immediately
+
+Common pitfall: if the device is already at a shell prompt and you run `--wait-for "login:"`, it will wait 10s then fail. Always probe first (Step 1).
 
 ### Prompt matching
 
@@ -108,6 +166,9 @@ ttypal-daemon stop -b myboard
 
    # Receive file from device
    ttypal-xfer --get /remote/path ./local_dir
+
+   # Specify board if multiple boards are connected
+   ttypal-xfer -b myboard --put local_file.bin
    ```
 
    **Known issue (RK platforms with FIQ debugger):** ZMODEM transfers may trigger FIQ debugger — both file data and protocol frames (CRC, headers) can contain the trigger sequence. No effective software workaround exists. Files <100KB generally reliable; larger files increasingly likely to trigger `debug>` mode (send `console` to recover). For large files, use TFTP/SCP via network or disable FIQ debugger (`no_fiq_debugger` boot param).
@@ -121,20 +182,23 @@ ttypal-daemon stop -b myboard
 ## Typical AI workflow
 
 ```bash
-# 1. Check if daemon is running
+# 1. Discover active instances
+ls /tmp/ttypal-*.sock    # if multiple, note the board names (suffix after ttypal-)
+
+# 2. Check if daemon is running
 ttypal-daemon status
 
-# 2. If not running, ASK the user first — they may already have ttypal open interactively.
+# 3. If not running, ASK the user first — they may already have ttypal open interactively.
 #    Only start daemon if user confirms no active session:
 ttypal-daemon start -b myboard
 
-# 3. Probe device state (what prompt comes back?)
-ttypal-send --probe
+# 4. Probe device state (what prompt comes back?)
+ttypal-send -b myboard --probe       # use -b if multiple boards
 
-# 4. Based on probe result, login if needed or proceed with commands
-ttypal-send --wait "# " "uname -a"
-ttypal-send --wait "# " "cat /etc/os-release"
+# 5. Based on probe result, login if needed or proceed with commands
+ttypal-send -b myboard --wait "# " "uname -a"
+ttypal-send -b myboard --wait "# " "cat /etc/os-release"
 
-# 5. Read recent logs
-ttypal-tail -n 30
+# 6. Read recent logs
+ttypal-tail -b myboard -n 30
 ```
