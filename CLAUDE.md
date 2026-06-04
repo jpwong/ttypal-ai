@@ -44,4 +44,4 @@ Every code change MUST follow this testing workflow:
 
 ## Current Version
 
-v0.3.0
+v0.4.0
