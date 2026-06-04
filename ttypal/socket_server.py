@@ -4,6 +4,7 @@ import socket
 import threading
 import time
 
+from .logger import SESSION_MARKER_PREFIX
 from .zmodem_transfer import ZmodemTransfer
 
 
@@ -77,10 +78,11 @@ class SocketServer:
                 if not payload.endswith("\n"):
                     payload += "\r\n"
 
+                mark = os.path.getsize(self.logger.current_log)
                 self.conn.write(payload)
 
                 output = self._wait_for_prompt_after_cmd(
-                    payload.strip(), prompt, timeout)
+                    payload.strip(), prompt, timeout, mark)
                 resp = {"status": "ok", "output": output}
 
             elif cmd == "expect_send":
@@ -109,9 +111,10 @@ class SocketServer:
                 if not ok:
                     resp = {"status": "error", "message": f"等待 '{expect}' 超时"}
                 else:
+                    mark = os.path.getsize(self.logger.current_log)
                     self.conn.write(payload)
                     output = self._wait_for_prompt_after_cmd(
-                        payload.strip(), prompt, timeout)
+                        payload.strip(), prompt, timeout, mark)
                     resp = {"status": "ok", "output": output}
 
             elif cmd == "probe":
@@ -177,40 +180,76 @@ class SocketServer:
             time.sleep(0.05)
         return False
 
-    def _wait_for_prompt_after_cmd(self, cmd_text, prompt, timeout):
-        """发送命令后，在日志中找到命令回显，返回回显之后到下一个 prompt 之间的内容"""
+    @staticmethod
+    def _normalize_echo(text):
+        """去除终端折行回显伪影：\\r 及折行点重复字符 (X\\rX → X)"""
+        result = []
+        i = 0
+        while i < len(text):
+            if text[i] == "\r":
+                if result and i + 1 < len(text) and text[i + 1] == result[-1]:
+                    i += 1
+                i += 1
+            else:
+                result.append(text[i])
+                i += 1
+        return "".join(result)
+
+    def _wait_for_prompt_after_cmd(self, cmd_text, prompt, timeout, mark=0):
+        """发送命令后，在日志中找到命令回显，返回回显之后到下一个 prompt 之间的内容。
+        mark: 发送命令前的日志偏移，优先在此之后搜索回显；仅当 mark 后持续无新数据时才扩大到全量。"""
         deadline = time.monotonic() + timeout
         log_path = self.logger.current_log
+        cmd_clean = cmd_text.replace("\r", "")
+        cmd_lines = [l for l in cmd_clean.split("\n") if l.strip()]
+        if len(cmd_lines) > 1:
+            cmd_clean = cmd_lines[-1]
+        after_cmd = ""
+        empty_count = 0
 
         while time.monotonic() < deadline:
             with open(log_path, "rb") as f:
                 content = f.read().decode("utf-8", errors="replace")
 
-            # 去掉时间戳提取纯内容
-            lines = content.split("\n")
-            plain_lines = []
-            for line in lines:
-                if line.startswith("[") and "] " in line:
-                    plain_lines.append(line[line.index("] ") + 2:])
-                else:
-                    plain_lines.append(line)
-            plain = "\n".join(plain_lines)
+            def _to_plain(text):
+                lines = text.split("\n")
+                plain_lines = []
+                for line in lines:
+                    if line.startswith(SESSION_MARKER_PREFIX):
+                        continue
+                    if line.startswith("[") and "] " in line:
+                        plain_lines.append(line[line.index("] ") + 2:])
+                    else:
+                        plain_lines.append(line)
+                return self._normalize_echo("\n".join(plain_lines))
 
-            # 找到命令回显的位置
-            cmd_pos = plain.find(cmd_text)
-            if cmd_pos < 0:
-                time.sleep(0.05)
-                continue
+            after_mark = content[mark:] if mark > 0 else content
+            use_full = mark > 0 and not after_mark.strip() and empty_count >= 10
+            if mark > 0 and not after_mark.strip():
+                empty_count += 1
+            else:
+                empty_count = 0
 
-            # 从命令之后开始找 prompt
-            after_cmd = plain[cmd_pos + len(cmd_text):]
+            base = content if use_full else (after_mark if mark > 0 else content)
+            plain = _to_plain(base)
+
+            cmd_pos = plain.rfind(cmd_clean)
+
+            if cmd_pos >= 0:
+                after_cmd = plain[cmd_pos + len(cmd_clean):]
+            else:
+                after_cmd = plain
+
             prompt_stripped = prompt.rstrip()
-            prompt_pos = after_cmd.find(prompt_stripped)
+            if cmd_pos >= 0:
+                prompt_pos = after_cmd.find(prompt_stripped)
+            else:
+                prompt_pos = after_cmd.rfind(prompt_stripped)
             if prompt_pos >= 0:
-                result = after_cmd[:prompt_pos + len(prompt_stripped)]
-                return result.strip("\r\n")
+                if use_full or (mark > 0 and after_mark.strip()):
+                    result = after_cmd[:prompt_pos + len(prompt_stripped)]
+                    return result.strip("\r\n")
 
             time.sleep(0.05)
 
-        # 超时：返回命令之后收集到的所有内容
-        return after_cmd.strip("\r\n") if "after_cmd" in dir() else ""
+        return after_cmd.strip("\r\n") if cmd_pos >= 0 else ""
