@@ -18,13 +18,27 @@ You have access to a serial port debug tool called ttypal. It lets you send comm
 
 ttypal must be installed (`pip install ttypal-ai`) and a ttypal session must be active.
 
-**How to check:** Run `ttypal-daemon status`. It shows all active sessions (both daemon and interactive mode). If no session is running, start one: `ttypal-daemon start -b <board> [-S <session>]`.
+**How to check:** Run `ttypal-daemon status`. It shows all active sessions (both daemon and interactive mode). If no session is running, **ask the user** which board profile to use, then start one: `ttypal-daemon start -b <board> [-S <session>]`. See "Session Selection" below.
 
 ### Board vs Session
 
 - `-b/--board` selects the **board profile** (TOML config with baudrate, prompt, macros, default port).
 - `-S/--session` selects the **running session** (socket/pid/log identity). When omitted, session name defaults to board name.
 - `--port` and `--baudrate` override profile defaults at daemon start.
+
+## Session Selection — MANDATORY FIRST STEP
+
+Before sending any command, you MUST determine which session to use. Follow this flow:
+
+1. **If the user already specified a session or profile** in their request (e.g. "send command to rk3588", "use session myboard"): use it directly, no need to ask. Proceed to step 4.
+2. **Check existing sessions:** Run `ttypal-daemon status`.
+3. **If the target is unclear:** **Ask the user** which session to use. Present the list of active sessions. The user may choose one, or choose to start a new session.
+   - If no session was selected (none exist, or user chose to start a new one): **ask the user** which board profile to use.
+     - You can list available profiles by checking `~/.config/ttypal/boards/` (each `.toml` file is a profile name).
+     - After the user confirms, start: `ttypal-daemon start -b <user-chosen-profile> [-S <session-name>]`
+4. Proceed with commands.
+
+**NEVER** assume a board profile or silently create a session without explicit user confirmation when the target is ambiguous.
 
 ## Multi-board
 
@@ -201,8 +215,8 @@ ttypal-daemon stop -S mysession
 # 1. Check active sessions
 ttypal-daemon status
 
-# 2. If no session running, start one:
-ttypal-daemon start -b myboard
+# 2. If no session running, ASK USER which profile to use, then start:
+ttypal-daemon start -b <user-specified-profile>
 
 # 3. Probe device state (what prompt comes back?)
 ttypal-send -S myboard --probe
