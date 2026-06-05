@@ -32,13 +32,15 @@ Before sending any command, you MUST determine which session to use. Follow this
 
 1. **If the user already specified a session or profile** in their request (e.g. "send command to rk3588", "use session myboard"): use it directly, no need to ask. Proceed to step 4.
 2. **Check existing sessions:** Run `ttypal-daemon status`.
-3. **If the target is unclear:** **Ask the user** which session to use. Present the list of active sessions. The user may choose one, or choose to start a new session.
-   - If no session was selected (none exist, or user chose to start a new one): **ask the user** which board profile to use.
-     - You can list available profiles by checking `~/.config/ttypal/boards/` (each `.toml` file is a profile name).
-     - After the user confirms, start: `ttypal-daemon start -b <user-chosen-profile> [-S <session-name>]`
+3. **If the target is unclear:** **Present clickable options to the user** listing all active sessions and an option to start a new session. Use the question-asking tool with selectable options, NOT free-text prompts.
+   - If no session was selected (none exist, or user chose to start a new one): **present clickable options** listing all available profiles (check `~/.config/ttypal/boards/` for `.toml` files) plus an option to create a new profile.
+     - **If no profiles exist or the user selects "create new profile":** tell them to run `ttypal` (without `-b`) to trigger the interactive setup wizard. This is an interactive wizard — the user must run it themselves. After they finish, proceed with `ttypal-daemon start -b <new-profile>`.
+     - After the user selects a profile via clickable option, start: `ttypal-daemon start -b <user-chosen-profile> [-S <session-name>]`
 4. Proceed with commands.
 
 **NEVER** assume a board profile or silently create a session without explicit user confirmation when the target is ambiguous.
+
+**IMPORTANT:** Always use clickable option prompts (with 2-4 selectable choices) instead of asking users to type responses. This provides a much better user experience.
 
 ## Multi-board
 
