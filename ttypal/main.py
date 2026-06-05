@@ -16,6 +16,7 @@ def main():
         description="ttypal — 你的串口调试伙伴",
     )
     parser.add_argument("-b", "--board", help="板子配置名称")
+    parser.add_argument("-S", "--session", help="Session 名称（运行时身份）")
     parser.add_argument("-p", "--port", help="覆盖串口路径")
     parser.add_argument("--baudrate", type=int, help="覆盖波特率")
     parser.add_argument("--save-as", metavar="NAME", help="保存当前参数为新配置")
@@ -69,21 +70,37 @@ def main():
             recorder=recorder,
         )
 
+    # Use session name for runtime identity if specified
+    session_name = args.session or name
+
     log_cfg = cfg.get("log", {})
     sock_cfg = cfg.get("socket", {})
 
     logger = Logger(
-        board_name=name,
+        board_name=session_name,
         directory=log_cfg.get("directory", "~/ttypal-logs"),
         rotate_size_kb=log_cfg.get("rotate_size_kb", 10240),
         timestamp_format=log_cfg.get("timestamp_format", "%y%m%d %H:%M:%S.%f"),
     )
 
-    sock_path = sock_cfg.get("path", f"/tmp/ttypal-{name}.sock")
-    sock_path = sock_path.replace("{name}", name)
+    sock_path = f"/tmp/ttypal-{session_name}.sock"
     prompt = sock_cfg.get("prompt", "# ")
 
     socket_srv = SocketServer(conn, logger, sock_path, prompt)
+
+    # Write session metadata so client tools can find this instance
+    if not args.replay:
+        from ttypal.session import save_session, remove_session
+        from datetime import datetime
+        ser_cfg = cfg["serial"]
+        save_session(session_name, {
+            "profile": name,
+            "port": ser_cfg["port"],
+            "baudrate": ser_cfg["baudrate"],
+            "socket": sock_path,
+            "pid": os.getpid(),
+            "started": datetime.now().isoformat(),
+        })
 
     from ttypal.macro import Macro
     macro = Macro.from_config(cfg)
@@ -94,6 +111,9 @@ def main():
     except Exception as e:
         print(f"\r\n  错误: {e}")
         sys.exit(1)
+    finally:
+        if not args.replay:
+            remove_session(session_name)
 
 
 if __name__ == "__main__":

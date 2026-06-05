@@ -12,16 +12,16 @@ from pathlib import Path
 PID_DIR = Path("/tmp")
 
 
-def _pid_file(board_name):
-    return PID_DIR / f"ttypal-{board_name}.pid"
+def _pid_file(session_name):
+    return PID_DIR / f"ttypal-{session_name}.pid"
 
 
-def _sock_file(board_name):
-    return PID_DIR / f"ttypal-{board_name}.sock"
+def _sock_file(session_name):
+    return PID_DIR / f"ttypal-{session_name}.sock"
 
 
-def _read_pid(board_name):
-    pf = _pid_file(board_name)
+def _read_pid(session_name):
+    pf = _pid_file(session_name)
     if not pf.exists():
         return None
     try:
@@ -34,16 +34,13 @@ def _read_pid(board_name):
 
 
 def _find_running():
-    boards = []
-    for f in PID_DIR.glob("ttypal-*.pid"):
-        name = f.stem.replace("ttypal-", "")
-        if _read_pid(name):
-            boards.append(name)
-    return boards
+    from .session import list_sessions
+    return [name for name, _ in list_sessions()]
 
 
 def cmd_start(args):
     from ttypal.config import load_board, list_boards
+    from ttypal.session import save_session
 
     board = args.board
     if not board:
@@ -59,8 +56,10 @@ def cmd_start(args):
                 print(f"  {b}")
             sys.exit(1)
 
-    if _read_pid(board):
-        print(f"ttypal-daemon ({board}) 已在运行")
+    session_name = args.session or board
+
+    if _read_pid(session_name):
+        print(f"ttypal-daemon ({session_name}) 已在运行")
         return
 
     cfg = load_board(board)
@@ -68,21 +67,27 @@ def cmd_start(args):
         print(f"配置 '{board}' 不存在")
         sys.exit(1)
 
+    # Apply overrides
+    if args.port:
+        cfg["serial"]["port"] = args.port
+    if args.baudrate:
+        cfg["serial"]["baudrate"] = args.baudrate
+
     pid = os.fork()
     if pid > 0:
         # parent — wait for daemon to be ready
         for _ in range(10):
             time.sleep(0.5)
-            if _sock_file(board).exists():
-                print(f"ttypal-daemon ({board}) 已启动 [PID {pid}]")
-                print(f"  socket: {_sock_file(board)}")
+            if _sock_file(session_name).exists():
+                print(f"ttypal-daemon ({session_name}) 已启动 [PID {pid}]")
+                print(f"  socket: {_sock_file(session_name)}")
                 return
         # check if child is still alive
         try:
             os.kill(pid, 0)
-            print(f"ttypal-daemon ({board}) 启动中 [PID {pid}]")
+            print(f"ttypal-daemon ({session_name}) 启动中 [PID {pid}]")
         except ProcessLookupError:
-            print(f"启动失败，查看日志: /tmp/ttypal-daemon-{board}.log")
+            print(f"启动失败，查看日志: /tmp/ttypal-daemon-{session_name}.log")
             sys.exit(1)
         return
 
@@ -90,20 +95,40 @@ def cmd_start(args):
     os.setsid()
     sys.stdin.close()
 
-    log_path = f"/tmp/ttypal-daemon-{board}.log"
+    log_path = f"/tmp/ttypal-daemon-{session_name}.log"
     log_fd = open(log_path, "a")
     os.dup2(log_fd.fileno(), 1)
     os.dup2(log_fd.fileno(), 2)
 
-    _pid_file(board).write_text(str(os.getpid()))
+    _pid_file(session_name).write_text(str(os.getpid()))
+
+    # Save session metadata
+    from datetime import datetime
+    ser_cfg = cfg["serial"]
+    sock_cfg = cfg.get("socket", {})
+    # Session name determines runtime socket/pid/log paths
+    sock_path = f"/tmp/ttypal-{session_name}.sock"
+    prompt = sock_cfg.get("prompt", "# ")
+
+    session_info = {
+        "profile": board,
+        "port": ser_cfg["port"],
+        "baudrate": ser_cfg["baudrate"],
+        "socket": sock_path,
+        "pid": os.getpid(),
+        "started": datetime.now().isoformat(),
+    }
+    save_session(session_name, session_info)
 
     try:
-        _run_daemon(board, cfg)
+        _run_daemon(session_name, cfg)
     finally:
-        _pid_file(board).unlink(missing_ok=True)
+        _pid_file(session_name).unlink(missing_ok=True)
+        from .session import remove_session
+        remove_session(session_name)
 
 
-def _run_daemon(board, cfg):
+def _run_daemon(session_name, cfg):
     from ttypal.serial_conn import SerialConnection
     from ttypal.logger import Logger
     from ttypal.socket_server import SocketServer
@@ -124,14 +149,13 @@ def _run_daemon(board, cfg):
     )
 
     logger = Logger(
-        board_name=board,
+        board_name=session_name,
         directory=log_cfg.get("directory", "~/ttypal-logs"),
         rotate_size_kb=log_cfg.get("rotate_size_kb", 10240),
         timestamp_format=log_cfg.get("timestamp_format", "%y%m%d %H:%M:%S.%f"),
     )
 
-    sock_path = sock_cfg.get("path", f"/tmp/ttypal-{board}.sock")
-    sock_path = sock_path.replace("{name}", board)
+    sock_path = f"/tmp/ttypal-{session_name}.sock"
     prompt = sock_cfg.get("prompt", "# ")
 
     conn.open()
@@ -169,43 +193,79 @@ def _run_daemon(board, cfg):
 
 
 def cmd_stop(args):
+    from .session import remove_session
+
+    session_name = args.session
     board = args.board
-    if board:
-        boards = [board]
+
+    if session_name:
+        sessions = [session_name]
+    elif board:
+        from .session import list_sessions
+        all_sessions = list_sessions()
+        sessions = [name for name, info in all_sessions if info.get("profile") == board]
+        if not sessions:
+            print(f"ttypal-daemon ({board}) 未在运行")
+            return
     else:
-        boards = _find_running()
-        if not boards:
+        sessions = _find_running()
+        if not sessions:
             print("没有运行中的 ttypal-daemon")
             return
 
-    for b in boards:
-        pid = _read_pid(b)
+    for s in sessions:
+        pid = _read_pid(s)
         if pid:
             os.kill(pid, signal.SIGTERM)
-            _pid_file(b).unlink(missing_ok=True)
-            print(f"ttypal-daemon ({b}) 已停止 [PID {pid}]")
+            _pid_file(s).unlink(missing_ok=True)
+            remove_session(s)
+            print(f"ttypal-daemon ({s}) 已停止 [PID {pid}]")
         else:
-            print(f"ttypal-daemon ({b}) 未在运行")
+            print(f"ttypal-daemon ({s}) 未在运行")
 
 
 def cmd_status(args):
+    from .session import list_sessions, load_session
+
+    session_name = args.session
     board = args.board
-    if board:
-        pid = _read_pid(board)
-        if pid:
-            print(f"ttypal-daemon ({board}): 运行中 [PID {pid}]")
-            print(f"  socket: {_sock_file(board)}")
+
+    if session_name:
+        info = load_session(session_name)
+        if info:
+            pid = info.get("pid", "?")
+            print(f"ttypal-daemon ({session_name}): 运行中 [PID {pid}]")
+            print(f"  profile: {info.get('profile', '?')}")
+            print(f"  port: {info.get('port', '?')}")
+            print(f"  baudrate: {info.get('baudrate', '?')}")
+            print(f"  socket: {info.get('socket', '?')}")
         else:
+            print(f"ttypal-daemon ({session_name}): 未运行")
+    elif board:
+        all_sessions = list_sessions()
+        matches = [(name, info) for name, info in all_sessions if info.get("profile") == board]
+        if not matches:
             print(f"ttypal-daemon ({board}): 未运行")
+        else:
+            for name, info in matches:
+                pid = info.get("pid", "?")
+                print(f"ttypal-daemon ({name}): 运行中 [PID {pid}]")
+                print(f"  profile: {info.get('profile', '?')}")
+                print(f"  port: {info.get('port', '?')}")
+                print(f"  baudrate: {info.get('baudrate', '?')}")
+                print(f"  socket: {info.get('socket', '?')}")
     else:
-        boards = _find_running()
-        if not boards:
+        all_sessions = list_sessions()
+        if not all_sessions:
             print("没有运行中的 ttypal-daemon")
         else:
-            for b in boards:
-                pid = _read_pid(b)
-                print(f"ttypal-daemon ({b}): 运行中 [PID {pid}]")
-                print(f"  socket: {_sock_file(b)}")
+            for name, info in all_sessions:
+                pid = info.get("pid", "?")
+                print(f"ttypal-daemon ({name}): 运行中 [PID {pid}]")
+                print(f"  profile: {info.get('profile', '?')}")
+                print(f"  port: {info.get('port', '?')}")
+                print(f"  baudrate: {info.get('baudrate', '?')}")
+                print(f"  socket: {info.get('socket', '?')}")
 
 
 def main():
@@ -217,12 +277,17 @@ def main():
 
     p_start = sub.add_parser("start", help="启动 daemon")
     p_start.add_argument("-b", "--board", help="板子配置名称")
+    p_start.add_argument("-S", "--session", help="Session 名称（运行时身份）")
+    p_start.add_argument("--port", help="覆盖串口路径")
+    p_start.add_argument("--baudrate", type=int, help="覆盖波特率")
 
     p_stop = sub.add_parser("stop", help="停止 daemon")
-    p_stop.add_argument("-b", "--board", help="板子名称（不指定则停止所有）")
+    p_stop.add_argument("-S", "--session", help="Session 名称")
+    p_stop.add_argument("-b", "--board", help="板子配置名称（停止该 profile 的所有 session）")
 
     p_status = sub.add_parser("status", help="查看运行状态")
-    p_status.add_argument("-b", "--board", help="板子名称")
+    p_status.add_argument("-S", "--session", help="Session 名称")
+    p_status.add_argument("-b", "--board", help="板子配置名称")
 
     args = parser.parse_args()
 

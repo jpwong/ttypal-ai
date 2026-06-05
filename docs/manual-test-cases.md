@@ -44,8 +44,20 @@
 
 | # | 测试点 | 命令 | 预期结果 |
 |---|--------|------|----------|
-| S15 | -b 指定板子 | `ttypal-send -b <board> "ls"` | exit 0，正确发送到指定板子 |
+| S15 | -b 指定板子 | `ttypal-send -b <board> "ls"` | exit 0，通过 profile 查找 session |
 | S16 | --socket 覆盖 -b | `ttypal-send -b fake --socket <real_sock> "ls"` | exit 0，--socket 优先 |
+| S17 | -S 指定 session | `ttypal-send -S <session> "ls"` | exit 0，直接查找 session |
+
+## Session 管理
+
+| # | 测试点 | 命令 | 预期结果 |
+|---|--------|------|----------|
+| SS01 | -S 启动 session | `ttypal-daemon start -b <board> -S <name>` | exit 0，socket 为 `/tmp/ttypal-<name>.sock` |
+| SS02 | status -S 显示详情 | `ttypal-daemon status -S <name>` | exit 0，显示 profile/port/baudrate/socket |
+| SS03 | status -b 按 profile 查找 | `ttypal-daemon status -b <board>` | exit 0，显示匹配的 session |
+| SS04 | stop -S 停止 | `ttypal-daemon stop -S <name>` | exit 0，清理 session 文件 |
+| SS05 | 无 -S 向后兼容 | `ttypal-daemon start -b <board>` | exit 0，session 名 = board 名 |
+| SS06 | -b 通过 profile 查找 send | `ttypal-send -b <board> --probe` | exit 0，通过 profile 匹配到 session |
 
 ## ttypal-tail 日志查看
 
@@ -117,6 +129,7 @@
 | v0.3.0 | S05 | 修复长命令（>80字符）折行导致返回空输出的 bug |
 | v0.3.0 | E04 | 修复输出包含 prompt 字符串时提前匹配的问题 |
 | v0.3.0 | S10, S11, L01-L04 | 完善登录流程文档和测试 |
+| v0.4.0 | S17, SS01-SS06 | 引入 Session 概念，-S/--session 运行时身份 |
 
 ---
 
@@ -127,19 +140,20 @@
 ```
 日期：2026-06-04
 板子：1.5m (RK3588 Buildroot, SV32)
-版本：v0.3.0
+版本：v0.4.0
 
 通过：
   D01-D04: daemon 状态管理
-  S01-S13: ttypal-send 基础功能（发送、--wait、--wait-for、--probe）
-  S15-S16: 多板子参数（-b、--socket）
-  T01-T02, T04: ttypal-tail（默认行数、-n、-f）
-  E01-E02: 异常处理（socket 不存在、板子不存在）
-  E04-E05: 边界情况（输出含 prompt、后台输出穿插）
-  L02, L04: 登录流程（完整登录、验证成功）
+  S03, S04, S13: ttypal-send --wait, 多行输出, --probe
+  S15-S17: 多板子参数（-b, --socket, -S）
+  SS01-SS06: Session 管理（-S 启动/状态/停止, -b 向后兼容, profile 查找）
+  T01-T02, T04: ttypal-tail（默认行数, -n, -b）
+  E01-E02: 异常处理（socket 不存在, 板子不存在）
+  S12: --wait-for 超时
 
 跳过：
   E03: 多实例未指定 -b（需要两个 daemon 同时运行）
+  T03: -f follow 模式（交互式，需 Ctrl-C）
 
-备注：核心功能全部验证通过，25 个测例中 24 个通过，1 个因环境限制跳过
+备注：Session 功能全部验证通过，26 个测例中 25 个通过，2 个因环境限制跳过
 ```

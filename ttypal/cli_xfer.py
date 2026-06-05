@@ -4,26 +4,6 @@ import json
 import os
 import socket
 import sys
-import glob
-
-
-def find_socket(board=None):
-    if board:
-        sock = f"/tmp/ttypal-{board}.sock"
-        if not os.path.exists(sock):
-            print(f"板子 '{board}' 的 ttypal 未运行 (未找到 {sock})", file=sys.stderr)
-            sys.exit(1)
-        return sock
-    socks = glob.glob("/tmp/ttypal-*.sock")
-    if len(socks) == 1:
-        return socks[0]
-    if len(socks) > 1:
-        print("多个 ttypal 实例运行中，请用 -b 或 --socket 指定:", file=sys.stderr)
-        for s in socks:
-            print(f"  {s}", file=sys.stderr)
-        sys.exit(1)
-    print("未找到运行中的 ttypal 实例", file=sys.stderr)
-    sys.exit(1)
 
 
 def send_request(sock_path, req, timeout=180):
@@ -49,12 +29,14 @@ def main():
     group.add_argument("--put", metavar="FILE", help="发送本地文件到设备")
     group.add_argument("--get", metavar="REMOTE_FILE", help="从设备接收文件")
     parser.add_argument("dest", nargs="?", help="目标路径（--put 无效，--get 为本地保存目录）")
-    parser.add_argument("--board", "-b", help="板子名称 (自动推导 socket 路径)")
-    parser.add_argument("--socket", "-s", help="ttypal socket 路径 (覆盖 -b)")
+    parser.add_argument("-b", "--board", help="板子配置名称 (通过 profile 查找 session)")
+    parser.add_argument("-S", "--session", help="Session 名称 (直接查找)")
+    parser.add_argument("--socket", "-s", help="ttypal socket 路径 (覆盖 -b/-S)")
     parser.add_argument("--timeout", "-t", type=int, default=120, help="传输超时秒数 (默认 120)")
     args = parser.parse_args()
 
-    sock_path = args.socket or find_socket(args.board)
+    from ttypal.session import find_socket
+    sock_path = args.socket or find_socket(session=args.session, board=args.board)
 
     try:
         if args.put:

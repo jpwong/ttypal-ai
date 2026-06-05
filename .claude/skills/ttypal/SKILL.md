@@ -16,32 +16,48 @@ You have access to a serial port debug tool called ttypal. It lets you send comm
 
 ## Prerequisites
 
-ttypal must be installed (`pip install ttypal-ai`) and a ttypal session must be active. The user may run ttypal in **two modes**:
+ttypal must be installed (`pip install ttypal-ai`) and a ttypal session must be active.
 
-1. **Daemon mode** — `ttypal-daemon start -b <board>` runs in background, `ttypal-daemon status` reports it.
-2. **Interactive mode** — user runs `ttypal` directly in another terminal. `ttypal-daemon status` will report "not running" even though the session is active and the socket is available.
+**How to check:** Run `ttypal-daemon status`. It shows all active sessions (both daemon and interactive mode). If no session is running, start one: `ttypal-daemon start -b <board> [-S <session>]`.
 
-**How to check:** Run `ttypal-daemon status` once. If it reports not running, **ask the user if they already have ttypal open interactively** before trying to start a daemon. If the user confirms an active session (e.g. "already opened", "running interactively", "it's up"), **skip daemon startup and proceed directly** with `ttypal-tail` and `ttypal-send` — they work the same in both modes.
+### Board vs Session
 
-To see available board configs: `ttypal-daemon start` (shows selection menu, not suitable for non-interactive use — use `-b` flag).
+- `-b/--board` selects the **board profile** (TOML config with baudrate, prompt, macros, default port).
+- `-S/--session` selects the **running session** (socket/pid/log identity). When omitted, session name defaults to board name.
+- `--port` and `--baudrate` override profile defaults at daemon start.
 
 ## Multi-board
 
-When multiple boards are connected, all commands use `-b BOARD` to select which board to target:
+When multiple boards are connected, use `-S` (session) or `-b` (board profile) to select the target:
 
 ```bash
-# Discover active instances
-ls /tmp/ttypal-*.sock    # socket filename suffix = board name
+# Discover active sessions
+ttypal-daemon status
 
-# Use -b with all commands
-ttypal-send -b myboard --probe
-ttypal-tail -b myboard -n 20
-ttypal-xfer -b myboard --put file.bin
+# Use -S with all commands (preferred when multiple sessions exist)
+ttypal-send -S myboard --probe
+ttypal-tail -S myboard -n 20
+ttypal-xfer -S myboard --put file.bin
+
+# Use -b to find session by profile name (works when only one session uses that profile)
+ttypal-send -b rk3588 "uname -a"
 ```
 
-If only one instance is running, `-b` is optional — commands auto-detect it. If multiple instances are running and `-b` is omitted, commands will error with a list of available boards.
+If only one session is running, `-b` and `-S` are both optional — commands auto-detect it. If multiple sessions are running and neither is specified, commands will error with a list of available sessions.
 
-The `--socket` flag is available as a low-level override (e.g. for non-standard socket paths), but `-b` is the preferred interface.
+### Same profile, multiple sessions
+
+When two boards share the same profile (e.g. two RK3588 boards on different USB ports):
+
+```bash
+ttypal-daemon start -b rk3588 -S left --port /dev/ttyUSB0
+ttypal-daemon start -b rk3588 -S right --port /dev/ttyUSB1
+
+ttypal-send -S left "echo hello"
+ttypal-send -S right "echo hello"
+```
+
+The `--socket` flag is available as a low-level override (e.g. for non-standard socket paths), but `-S`/`-b` is the preferred interface.
 
 ## Sending commands
 
@@ -66,8 +82,8 @@ ttypal-send --wait-for "Password:" "mypassword"
 ttypal-send --wait-for "login:" --wait "Password:" "root"
 ttypal-send --wait-for "Password:" --wait "# " "mypassword"
 
-# Specify board if multiple boards are connected
-ttypal-send -b myboard "ls"
+# Specify session if multiple boards are connected
+ttypal-send -S myboard "ls"
 ```
 
 ### Login sequence
@@ -75,7 +91,7 @@ ttypal-send -b myboard "ls"
 **Step 1: Decide if login is needed — use `--probe` first**
 
 ```bash
-ttypal-send -b <board> --probe
+ttypal-send -S <session> --probe
 ```
 
 Interpret the response:
@@ -100,7 +116,7 @@ ttypal-send --wait-for "Password:" --wait "# " "mypassword"
 **Step 3: Verify login succeeded**
 
 ```bash
-ttypal-send -b <board> --probe
+ttypal-send -S <session> --probe
 ```
 
 If response shows `# ` or `$ `, login succeeded. If `Login incorrect` or `login:` appears again, login failed.
@@ -111,7 +127,7 @@ If response shows `# ` or `$ `, login succeeded. If `Login incorrect` or `login:
 - Between retries, reset state by sending Ctrl-C then probing again:
   ```bash
   ttypal-send $'\x03'          # send Ctrl-C to clear any partial input
-  ttypal-send -b <board> --probe
+  ttypal-send -S <session> --probe
   ```
 - After 3 failures, **stop and report to user** — do not keep retrying. The user needs to check: correct password, serial baud rate, device state.
 
@@ -144,16 +160,16 @@ ttypal-tail -n 50
 # Follow mode (like tail -f)
 ttypal-tail -f
 
-# Specific board's logs
-ttypal-tail -b myboard
+# Specific session's logs
+ttypal-tail -S mysession
 ```
 
 ## Stopping the daemon
 
 ```bash
 ttypal-daemon stop
-# or for a specific board:
-ttypal-daemon stop -b myboard
+# or for a specific session:
+ttypal-daemon stop -S mysession
 ```
 
 ## Capability boundaries — READ THIS
@@ -167,8 +183,8 @@ ttypal-daemon stop -b myboard
    # Receive file from device
    ttypal-xfer --get /remote/path ./local_dir
 
-   # Specify board if multiple boards are connected
-   ttypal-xfer -b myboard --put local_file.bin
+   # Specify session if multiple boards are connected
+   ttypal-xfer -S mysession --put local_file.bin
    ```
 
    **Known issue (RK platforms with FIQ debugger):** ZMODEM transfers may trigger FIQ debugger — both file data and protocol frames (CRC, headers) can contain the trigger sequence. No effective software workaround exists. Files <100KB generally reliable; larger files increasingly likely to trigger `debug>` mode (send `console` to recover). For large files, use TFTP/SCP via network or disable FIQ debugger (`no_fiq_debugger` boot param).
@@ -182,23 +198,19 @@ ttypal-daemon stop -b myboard
 ## Typical AI workflow
 
 ```bash
-# 1. Discover active instances
-ls /tmp/ttypal-*.sock    # if multiple, note the board names (suffix after ttypal-)
-
-# 2. Check if daemon is running
+# 1. Check active sessions
 ttypal-daemon status
 
-# 3. If not running, ASK the user first — they may already have ttypal open interactively.
-#    Only start daemon if user confirms no active session:
+# 2. If no session running, start one:
 ttypal-daemon start -b myboard
 
-# 4. Probe device state (what prompt comes back?)
-ttypal-send -b myboard --probe       # use -b if multiple boards
+# 3. Probe device state (what prompt comes back?)
+ttypal-send -S myboard --probe
 
-# 5. Based on probe result, login if needed or proceed with commands
-ttypal-send -b myboard --wait "# " "uname -a"
-ttypal-send -b myboard --wait "# " "cat /etc/os-release"
+# 4. Based on probe result, login if needed or proceed with commands
+ttypal-send -S myboard --wait "# " "uname -a"
+ttypal-send -S myboard --wait "# " "cat /etc/os-release"
 
-# 6. Read recent logs
-ttypal-tail -b myboard -n 30
+# 5. Read recent logs
+ttypal-tail -S myboard -n 30
 ```

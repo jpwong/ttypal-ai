@@ -7,34 +7,79 @@ from pathlib import Path
 
 from .config import load_board, list_boards
 from .logger import SESSION_MARKER_PREFIX
+from .session import list_sessions, load_session
 
 
-def _get_log_dir(board):
-    cfg = load_board(board)
+def _get_log_dir(session_name):
+    """Get log directory for a session or board name."""
+    # Try session metadata first
+    info = load_session(session_name)
+    if info:
+        profile = info.get("profile")
+        cfg = load_board(profile) if profile else None
+        if cfg:
+            log_cfg = cfg.get("log", {})
+            directory = log_cfg.get("directory", "~/ttypal-logs")
+            d = Path(os.path.expanduser(directory)) / session_name
+            if d.exists():
+                return d
+
+    # Try loading board config directly (works when no session is running)
+    cfg = load_board(session_name)
     if cfg:
         log_cfg = cfg.get("log", {})
         directory = log_cfg.get("directory", "~/ttypal-logs")
-        d = Path(os.path.expanduser(directory)) / board
+        d = Path(os.path.expanduser(directory)) / session_name
         if d.exists():
             return d
 
-    fallback = Path.home() / "ttypal-logs" / board
-    if fallback.exists():
-        return fallback
+    # Fallback: try common locations
+    for base in [Path.home() / "ttypal-logs", Path.home() / "workspace" / "ttypal-logs"]:
+        d = base / session_name
+        if d.exists():
+            return d
 
-    print(f"日志目录不存在: {board}", file=sys.stderr)
+    print(f"日志目录不存在: {session_name}", file=sys.stderr)
     sys.exit(1)
 
 
-def find_board_log_dir(board=None):
-    if board:
-        return _get_log_dir(board)
+def _resolve_session(session=None, board=None):
+    """Resolve session name from -S or -b flags."""
+    if session:
+        if not load_session(session):
+            print(f"Session '{session}' not found or not running", file=sys.stderr)
+            sys.exit(1)
+        return session
 
+    sessions = list_sessions()
+
+    if board:
+        matches = [name for name, info in sessions if info.get("profile") == board]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            print(f"Multiple sessions with profile '{board}', use -S to specify:", file=sys.stderr)
+            for name in matches:
+                print(f"  {name}", file=sys.stderr)
+            sys.exit(1)
+        # No matching session, try using board name directly (legacy)
+        return board
+
+    # Auto-detect
+    if len(sessions) == 1:
+        return sessions[0][0]
+    if len(sessions) > 1:
+        print("Multiple sessions running, use -b or -S to specify:", file=sys.stderr)
+        for name, info in sessions:
+            print(f"  {name} (profile: {info.get('profile', '?')})", file=sys.stderr)
+        sys.exit(1)
+
+    # No sessions, try to find any log directory
     boards = list_boards()
     if len(boards) == 1:
-        return _get_log_dir(boards[0])
+        return boards[0]
     if len(boards) > 1:
-        print("多个板子配置，请用 -b 指定:", file=sys.stderr)
+        print("多个板子配置，请用 -b 或 -S 指定:", file=sys.stderr)
         for b in boards:
             print(f"  {b}", file=sys.stderr)
         sys.exit(1)
@@ -92,11 +137,11 @@ def follow(filepath):
             pass
 
 
-def _is_daemon_alive(board):
-    sock_file = Path(f"/tmp/ttypal-{board}.sock")
+def _is_daemon_alive(session_name):
+    sock_file = Path(f"/tmp/ttypal-{session_name}.sock")
     if sock_file.is_socket():
         return True
-    pid_file = Path(f"/tmp/ttypal-{board}.pid")
+    pid_file = Path(f"/tmp/ttypal-{session_name}.pid")
     if not pid_file.exists():
         return False
     try:
@@ -111,17 +156,18 @@ def main():
     parser = argparse.ArgumentParser(description="查看 ttypal 串口日志")
     parser.add_argument("-n", "--lines", type=int, default=20, help="显示最后 N 行 (默认 20)")
     parser.add_argument("-f", "--follow", action="store_true", help="持续跟踪输出")
-    parser.add_argument("-b", "--board", help="板子名称")
+    parser.add_argument("-b", "--board", help="板子配置名称")
+    parser.add_argument("-S", "--session", help="Session 名称")
     args = parser.parse_args()
 
-    log_dir = find_board_log_dir(args.board)
-    board_name = args.board or log_dir.name
+    session_name = _resolve_session(session=args.session, board=args.board)
+    log_dir = _get_log_dir(session_name)
 
-    if not _is_daemon_alive(board_name):
+    if not _is_daemon_alive(session_name):
         if args.follow:
-            print(f"ttypal ({board_name}) 未运行，无法跟踪实时输出", file=sys.stderr)
+            print(f"ttypal ({session_name}) 未运行，无法跟踪实时输出", file=sys.stderr)
             sys.exit(1)
-        print(f"注意: ttypal ({board_name}) 未运行，以下为历史日志", file=sys.stderr)
+        print(f"注意: ttypal ({session_name}) 未运行，以下为历史日志", file=sys.stderr)
 
     lines = tail(log_dir, args.lines)
     for line in lines:

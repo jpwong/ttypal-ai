@@ -9,6 +9,7 @@ ttypal/                     # Python module
 ├── __init__.py
 ├── main.py                 # ttypal entry (interactive terminal)
 ├── config.py               # Board config (TOML, ~/.config/ttypal/boards/)
+├── session.py              # Session metadata (/tmp/ttypal-*.session)
 ├── serial_conn.py          # pyserial wrapper with flock + pause/resume
 ├── terminal.py             # Interactive terminal (tty raw mode, Ctrl-T escape)
 ├── logger.py               # Logging with session marker, optional timestamps, rotation
@@ -45,6 +46,13 @@ docs/
 ```
 
 ## Key Design Decisions
+
+### Board vs Session
+Two distinct concepts:
+- **Board (Profile)**: `-b/--board` — a saved TOML config describing how to connect to a type of board (baudrate, prompt, macros). Stored in `~/.config/ttypal/boards/`.
+- **Session**: `-S/--session` — a running instance, identified by name. Determines socket/pid/log paths. Stored in `/tmp/ttypal-*.session`.
+
+When `-S` is omitted, session name defaults to board name. Client tools (`ttypal-send`, `ttypal-tail`, `ttypal-xfer`) can find sessions by `-S name` directly or by `-b board` (scans session files for matching profile).
 
 ### Serial Port Locking
 `serial_conn.py` uses flock on `/tmp/ttypal-<port>.lock` to prevent multiple instances from opening the same port. Lock auto-releases on process exit.
