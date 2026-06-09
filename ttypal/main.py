@@ -3,6 +3,7 @@ import argparse
 import sys
 import os
 
+from ttypal import __version__
 from ttypal.config import resolve_config, select_board
 from ttypal.serial_conn import SerialConnection
 from ttypal.logger import Logger
@@ -15,6 +16,7 @@ def main():
         prog="ttypal",
         description="ttypal — 你的串口调试伙伴",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("-b", "--board", help="板子配置名称")
     parser.add_argument("-S", "--session", help="Session 名称（运行时身份）")
     parser.add_argument("-p", "--port", help="覆盖串口路径")
@@ -113,7 +115,7 @@ def main():
         sys.exit(1)
     finally:
         if not args.replay:
-            remove_session(session_name)
+            remove_session(session_name, pid=os.getpid())
 
 
 if __name__ == "__main__":

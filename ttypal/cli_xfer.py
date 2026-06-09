@@ -24,7 +24,9 @@ def send_request(sock_path, req, timeout=180):
 
 
 def main():
+    from ttypal import __version__
     parser = argparse.ArgumentParser(description="ttypal ZMODEM 文件传输")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--put", metavar="FILE", help="发送本地文件到设备")
     group.add_argument("--get", metavar="REMOTE_FILE", help="从设备接收文件")

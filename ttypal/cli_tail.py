@@ -153,7 +153,9 @@ def _is_daemon_alive(session_name):
 
 
 def main():
+    from ttypal import __version__
     parser = argparse.ArgumentParser(description="查看 ttypal 串口日志")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("-n", "--lines", type=int, default=20, help="显示最后 N 行 (默认 20)")
     parser.add_argument("-f", "--follow", action="store_true", help="持续跟踪输出")
     parser.add_argument("-b", "--board", help="板子配置名称")

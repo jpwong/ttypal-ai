@@ -36,23 +36,43 @@ def load_session(name):
     try:
         with open(path, "r", encoding="utf-8") as f:
             info = json.load(f)
-        # Check if the process is still alive
-        pid = info.get("pid")
-        if pid:
-            try:
-                os.kill(pid, 0)
-            except (ProcessLookupError, PermissionError):
-                # Process is dead, clean up
-                path.unlink(missing_ok=True)
-                return None
         return info
     except (json.JSONDecodeError, KeyError, ValueError):
         return None
 
 
-def remove_session(name):
-    """Remove session metadata file."""
+def is_session_alive(name):
+    """Check if a session's process is still running."""
+    info = load_session(name)
+    if not info:
+        return False
+    pid = info.get("pid")
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def remove_session(name, pid=None):
+    """Remove session metadata file.
+
+    If pid is given, only remove if the session file's PID matches
+    (prevents one instance from deleting another's session file).
+    """
     path = session_file(name)
+    if not path.exists():
+        return
+    if pid is not None:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                info = json.load(f)
+            if info.get("pid") != pid:
+                return  # Not our session, don't delete
+        except (json.JSONDecodeError, OSError):
+            pass
     path.unlink(missing_ok=True)
 
 
@@ -62,7 +82,7 @@ def list_sessions():
     for f in SESSION_DIR.glob("ttypal-*.session"):
         name = f.stem.replace("ttypal-", "")
         info = load_session(name)
-        if info:
+        if info and is_session_alive(name):
             sessions.append((name, info))
     return sorted(sessions, key=lambda x: x[0])
 
@@ -74,14 +94,21 @@ def find_socket(session=None, board=None):
     - board: scan session files for matching profile
     - neither: auto-detect (must be exactly one session)
 
+    Falls back to scanning /tmp/ttypal-*.sock files if no .session
+    metadata exists (e.g. older interactive terminal instances).
+
     Returns socket path string. Prints error and exits on failure.
     """
     import sys
 
     if session:
         info = load_session(session)
-        if info:
+        if info and is_session_alive(session):
             return info["socket"]
+        # Fallback: check if .sock file exists and is a live socket
+        sock_path = SESSION_DIR / f"ttypal-{session}.sock"
+        if sock_path.exists():
+            return str(sock_path)
         print(f"Session '{session}' not found or not running", file=sys.stderr)
         sys.exit(1)
 
@@ -96,6 +123,10 @@ def find_socket(session=None, board=None):
             for name, _ in matches:
                 print(f"  {name}", file=sys.stderr)
             sys.exit(1)
+        # Fallback: check .sock file by board name
+        sock_path = SESSION_DIR / f"ttypal-{board}.sock"
+        if sock_path.exists():
+            return str(sock_path)
         print(f"板子 '{board}' 的 ttypal 未运行 (未找到匹配的 session)", file=sys.stderr)
         sys.exit(1)
 
@@ -107,5 +138,16 @@ def find_socket(session=None, board=None):
         for name, info in sessions:
             print(f"  {name} (profile: {info.get('profile', '?')})", file=sys.stderr)
         sys.exit(1)
+
+    # Fallback: scan for .sock files without .session metadata
+    sock_files = list(SESSION_DIR.glob("ttypal-*.sock"))
+    if len(sock_files) == 1:
+        return str(sock_files[0])
+    if len(sock_files) > 1:
+        print("Multiple ttypal sockets found (no session metadata), use --socket to specify:", file=sys.stderr)
+        for s in sock_files:
+            print(f"  {s}", file=sys.stderr)
+        sys.exit(1)
+
     print("No active ttypal sessions found", file=sys.stderr)
     sys.exit(1)

@@ -125,7 +125,7 @@ def cmd_start(args):
     finally:
         _pid_file(session_name).unlink(missing_ok=True)
         from .session import remove_session
-        remove_session(session_name)
+        remove_session(session_name, pid=os.getpid())
 
 
 def _run_daemon(session_name, cfg):
@@ -269,10 +269,12 @@ def cmd_status(args):
 
 
 def main():
+    from ttypal import __version__
     parser = argparse.ArgumentParser(
         prog="ttypal-daemon",
         description="ttypal 后台 daemon（供 AI 自动化使用）",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command")
 
     p_start = sub.add_parser("start", help="启动 daemon")

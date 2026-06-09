@@ -6,7 +6,9 @@ import sys
 
 
 def main():
+    from ttypal import __version__
     parser = argparse.ArgumentParser(description="向 ttypal 发送串口命令")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("command", nargs="?", default="", help="要发送的命令")
     parser.add_argument("-b", "--board", help="板子配置名称 (通过 profile 查找 session)")
     parser.add_argument("-S", "--session", help="Session 名称 (直接查找)")

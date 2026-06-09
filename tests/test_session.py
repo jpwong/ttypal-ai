@@ -6,7 +6,7 @@ import pytest
 
 from ttypal.session import (
     session_file, save_session, load_session, remove_session,
-    list_sessions, find_socket, SESSION_DIR,
+    list_sessions, find_socket, is_session_alive, SESSION_DIR,
 )
 
 
@@ -42,7 +42,7 @@ def test_load_nonexistent(session_dir):
 
 
 def test_load_dead_process(session_dir):
-    """load_session returns None when the PID is dead."""
+    """load_session returns data even for dead PIDs; is_session_alive returns False."""
     info = {
         "profile": "rk3588",
         "port": "/dev/ttyUSB0",
@@ -52,8 +52,12 @@ def test_load_dead_process(session_dir):
         "started": "2026-06-04T12:00:00",
     }
     save_session("dead", info)
-    assert load_session("dead") is None
-    assert not session_file("dead").exists()
+    loaded = load_session("dead")
+    assert loaded is not None
+    assert loaded["pid"] == 99999999
+    assert not is_session_alive("dead")
+    # Session file should NOT be deleted by load_session
+    assert session_file("dead").exists()
 
 
 def test_remove_session(session_dir):
