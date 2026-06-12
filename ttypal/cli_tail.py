@@ -148,7 +148,9 @@ def _is_daemon_alive(session_name):
         pid = int(pid_file.read_text().strip())
         os.kill(pid, 0)
         return True
-    except (ValueError, ProcessLookupError, PermissionError):
+    except PermissionError:
+        return True
+    except (ValueError, ProcessLookupError):
         return False
 
 

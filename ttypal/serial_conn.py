@@ -3,6 +3,7 @@ import threading
 import time
 import fcntl
 import os
+import io
 
 
 class SerialConnection:
@@ -30,11 +31,25 @@ class SerialConnection:
 
     def _acquire_lock(self):
         lock_path = f"/tmp/ttypal-{os.path.basename(self.port)}.lock"
-        self._lock_fd = open(lock_path, "w")
+        try:
+            fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o666)
+            try:
+                os.fchmod(fd, 0o666)
+            except OSError:
+                pass
+            self._lock_fd = os.fdopen(fd, "r+")
+        except PermissionError:
+            fd = os.open(lock_path, os.O_RDONLY)
+            self._lock_fd = os.fdopen(fd, "r")
         try:
             fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            self._lock_fd.write(str(os.getpid()))
-            self._lock_fd.flush()
+            try:
+                self._lock_fd.seek(0)
+                self._lock_fd.truncate()
+                self._lock_fd.write(str(os.getpid()))
+                self._lock_fd.flush()
+            except (OSError, io.UnsupportedOperation):
+                pass
         except OSError:
             self._lock_fd.close()
             self._lock_fd = None

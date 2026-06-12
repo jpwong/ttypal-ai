@@ -26,10 +26,24 @@ def _read_pid(session_name):
         return None
     try:
         pid = int(pf.read_text().strip())
+    except PermissionError:
+        return None
+    except ValueError:
+        try:
+            pf.unlink(missing_ok=True)
+        except PermissionError:
+            pass
+        return None
+    try:
         os.kill(pid, 0)
         return pid
-    except (ValueError, ProcessLookupError, PermissionError):
-        pf.unlink(missing_ok=True)
+    except PermissionError:
+        return pid
+    except ProcessLookupError:
+        try:
+            pf.unlink(missing_ok=True)
+        except PermissionError:
+            pass
         return None
 
 
@@ -216,8 +230,15 @@ def cmd_stop(args):
     for s in sessions:
         pid = _read_pid(s)
         if pid:
-            os.kill(pid, signal.SIGTERM)
-            _pid_file(s).unlink(missing_ok=True)
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except PermissionError:
+                print(f"ttypal-daemon ({s}) 正在运行但当前用户无权限停止 [PID {pid}]")
+                continue
+            try:
+                _pid_file(s).unlink(missing_ok=True)
+            except PermissionError:
+                pass
             remove_session(s)
             print(f"ttypal-daemon ({s}) 已停止 [PID {pid}]")
         else:

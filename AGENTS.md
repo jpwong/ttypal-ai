@@ -61,4 +61,4 @@ Every feature change MUST include a documentation scan:
 
 ## Current Version
 
-v0.4.4
+v0.4.5

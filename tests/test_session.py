@@ -88,6 +88,16 @@ def test_list_sessions_ignores_dead(session_dir):
     assert names == ["alive"]
 
 
+def test_session_alive_permission_denied(session_dir, monkeypatch):
+    save_session("otheruser", {"profile": "rk3588", "socket": "/tmp/a.sock", "pid": 12345})
+
+    def raise_permission_error(pid, sig):
+        raise PermissionError
+
+    monkeypatch.setattr(os, "kill", raise_permission_error)
+    assert is_session_alive("otheruser") is True
+
+
 class TestFindSocket:
     def test_by_session_name(self, session_dir):
         save_session("left", {"profile": "rk3588", "socket": "/tmp/ttypal-left.sock", "pid": os.getpid()})

@@ -68,6 +68,13 @@
 | test_replay_write_logs_tx | ReplayBackend 的 write 操作记录到 TX 日志 |
 | test_replay_is_open | open/close 正确切换 is_open 状态 |
 
+## test_serial_conn.py — 串口连接与锁
+
+| 用例 | 说明 |
+|------|------|
+| test_lock_file_readonly_still_acquires_flock | 其他用户遗留的只读 lock 文件仍可通过只读 fd 获取 flock |
+| test_lock_file_contention_raises_runtime_error | 同一串口已有实例持锁时，第二个实例启动失败 |
+
 ## test_tail.py — 日志读取 (ttypal-tail)
 
 ### Session 标记
@@ -114,7 +121,16 @@
 | test_daemon_alive_no_pid_file | 无 PID 文件时返回 False |
 | test_daemon_alive_stale_pid | PID 文件存在但进程已死时返回 False |
 | test_daemon_alive_current_process | PID 文件指向存活进程时返回 True |
-| test_daemon_alive_socket_exists | Unix socket 文件存在时返回 True（使用真实 AF_UNIX socket） |
+| test_daemon_alive_socket_exists | Unix socket 文件存在时返回 True |
+| test_daemon_alive_permission_denied_pid | PID 指向其他用户进程导致 `kill(pid, 0)` 返回 EPERM 时视为运行中 |
+
+## test_cli_headless.py — ttypal-daemon 命令
+
+| 用例 | 说明 |
+|------|------|
+| test_read_pid_permission_denied_is_running | 读取 PID 时遇到 EPERM 不删除 PID 文件，并返回该 PID |
+| test_read_pid_unlink_permission_denied_does_not_raise | 清理僵尸 PID 文件时无删除权限不抛异常 |
+| test_stop_permission_denied_does_not_remove_session | 停止其他用户 daemon 无权限时给出提示，不清理 session |
 
 ## test_macro.py — 宏录制/播放
 

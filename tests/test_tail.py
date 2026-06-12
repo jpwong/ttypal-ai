@@ -1,6 +1,4 @@
-import tempfile
 import os
-import socket
 from pathlib import Path
 
 from ttypal.logger import Logger, SESSION_MARKER_PREFIX
@@ -203,13 +201,23 @@ def test_daemon_alive_current_process(tmp_path):
         pid_file.unlink(missing_ok=True)
 
 
-def test_daemon_alive_socket_exists(tmp_path):
-    sock_file = Path("/tmp/ttypal-testsock.sock")
-    sock_file.unlink(missing_ok=True)
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+def test_daemon_alive_socket_exists(monkeypatch):
+    def fake_is_socket(path):
+        return str(path) == "/tmp/ttypal-testsock.sock"
+
+    monkeypatch.setattr(Path, "is_socket", fake_is_socket)
+    assert _is_daemon_alive("testsock") is True
+
+
+def test_daemon_alive_permission_denied_pid(monkeypatch):
+    pid_file = Path("/tmp/ttypal-testdaemon-perm.pid")
+    pid_file.write_text("12345")
+
+    def raise_permission_error(pid, sig):
+        raise PermissionError
+
+    monkeypatch.setattr(os, "kill", raise_permission_error)
     try:
-        sock.bind(str(sock_file))
-        assert _is_daemon_alive("testsock") is True
+        assert _is_daemon_alive("testdaemon-perm") is True
     finally:
-        sock.close()
-        sock_file.unlink(missing_ok=True)
+        pid_file.unlink(missing_ok=True)

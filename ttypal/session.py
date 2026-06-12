@@ -52,7 +52,9 @@ def is_session_alive(name):
     try:
         os.kill(pid, 0)
         return True
-    except (ProcessLookupError, PermissionError):
+    except PermissionError:
+        return True
+    except ProcessLookupError:
         return False
 
 
