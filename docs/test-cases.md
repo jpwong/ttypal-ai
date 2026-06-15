@@ -131,6 +131,9 @@
 | test_read_pid_permission_denied_is_running | 读取 PID 时遇到 EPERM 不删除 PID 文件，并返回该 PID |
 | test_read_pid_unlink_permission_denied_does_not_raise | 清理僵尸 PID 文件时无删除权限不抛异常 |
 | test_stop_permission_denied_does_not_remove_session | 停止其他用户 daemon 无权限时给出提示，不清理 session |
+| test_stop_waits_for_exit_before_cleanup | stop 发送 SIGTERM 后等待进程退出，再清理 PID 和 session 元数据 |
+| test_stop_timeout_keeps_session_metadata | stop 等待退出超时时报告超时，并保留 PID 和 session 元数据 |
+| test_status_session_ignores_stale_metadata | `status -S` 遇到 stale session 元数据时报告未运行 |
 
 ## test_macro.py — 宏录制/播放
 

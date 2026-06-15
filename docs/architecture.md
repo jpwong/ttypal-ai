@@ -57,6 +57,9 @@ When `-S` is omitted, session name defaults to board name. Client tools (`ttypal
 ### Serial Port Locking
 `serial_conn.py` uses flock on `/tmp/ttypal-<port>.lock` to prevent multiple instances from opening the same port. Lock auto-releases on process exit. The lock file may remain in `/tmp`; this is normal because the active lock is tied to the open file descriptor, not the pathname. For multi-user use, ttypal can acquire the flock through a read-only descriptor if another user owns the leftover lock file; writing the PID into the lock file is best-effort only.
 
+### Daemon Stop Semantics
+`ttypal-daemon stop` sends SIGTERM and waits for the target daemon process to exit before removing pid/session metadata. This ensures the serial connection has run its shutdown path and released the kernel flock before a follow-up `start` tries to reopen the same physical port. If the process does not exit before the timeout, metadata is left in place and the command reports a stop timeout.
+
 ### Serial Port Pause/Resume
 `serial_conn.py` supports `pause()` / `resume()` to temporarily stop the reader thread from consuming serial data. Used by ZMODEM transfer to exclusively access the serial port during file transfer.
 

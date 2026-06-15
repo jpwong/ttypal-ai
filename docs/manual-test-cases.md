@@ -55,7 +55,7 @@
 | SS01 | -S 启动 session | `ttypal-daemon start -b <board> -S <name>` | exit 0，socket 为 `/tmp/ttypal-<name>.sock` |
 | SS02 | status -S 显示详情 | `ttypal-daemon status -S <name>` | exit 0，显示 profile/port/baudrate/socket |
 | SS03 | status -b 按 profile 查找 | `ttypal-daemon status -b <board>` | exit 0，显示匹配的 session |
-| SS04 | stop -S 停止 | `ttypal-daemon stop -S <name>` | exit 0，清理 session 文件 |
+| SS04 | stop -S 停止 | `ttypal-daemon stop -S <name>` | exit 0，daemon 已退出，清理 session 文件，立即重新 start 不应撞串口锁 |
 | SS05 | 无 -S 向后兼容 | `ttypal-daemon start -b <board>` | exit 0，session 名 = board 名 |
 | SS06 | -b 通过 profile 查找 send | `ttypal-send -b <board> --probe` | exit 0，通过 profile 匹配到 session |
 
@@ -73,7 +73,7 @@
 | # | 测试点 | 命令 | 预期结果 |
 |---|--------|------|----------|
 | D01 | status 运行中 | `ttypal-daemon status` | exit 0，报告运行中 |
-| D02 | stop 停止 | `ttypal-daemon stop` | exit 0，停止成功 |
+| D02 | stop 停止 | `ttypal-daemon stop` | exit 0，等待 daemon 退出后报告停止成功 |
 | D03 | status 未运行 | `ttypal-daemon stop` 后 `ttypal-daemon status` | exit 0，报告未运行 |
 | D04 | start 启动 | `ttypal-daemon start -b <board>` | exit 0，启动成功 |
 

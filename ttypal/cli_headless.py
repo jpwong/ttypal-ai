@@ -10,6 +10,8 @@ from pathlib import Path
 
 
 PID_DIR = Path("/tmp")
+STOP_TIMEOUT = 5.0
+STOP_POLL_INTERVAL = 0.1
 
 
 def _pid_file(session_name):
@@ -50,6 +52,40 @@ def _read_pid(session_name):
 def _find_running():
     from .session import list_sessions
     return [name for name, _ in list_sessions()]
+
+
+def _is_pid_exited(pid):
+    proc_stat = Path(f"/proc/{pid}/stat")
+    try:
+        stat = proc_stat.read_text()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        pass
+    else:
+        try:
+            state = stat.rsplit(")", 1)[1].strip().split()[0]
+        except IndexError:
+            state = ""
+        if state == "Z":
+            return True
+
+    try:
+        os.kill(pid, 0)
+        return False
+    except PermissionError:
+        return False
+    except ProcessLookupError:
+        return True
+
+
+def _wait_for_pid_exit(pid, timeout=STOP_TIMEOUT):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _is_pid_exited(pid):
+            return True
+        time.sleep(STOP_POLL_INTERVAL)
+    return _is_pid_exited(pid)
 
 
 def cmd_start(args):
@@ -235,6 +271,9 @@ def cmd_stop(args):
             except PermissionError:
                 print(f"ttypal-daemon ({s}) 正在运行但当前用户无权限停止 [PID {pid}]")
                 continue
+            if not _wait_for_pid_exit(pid):
+                print(f"ttypal-daemon ({s}) 停止超时 [PID {pid}]")
+                continue
             try:
                 _pid_file(s).unlink(missing_ok=True)
             except PermissionError:
@@ -246,14 +285,14 @@ def cmd_stop(args):
 
 
 def cmd_status(args):
-    from .session import list_sessions, load_session
+    from .session import is_session_alive, list_sessions, load_session
 
     session_name = args.session
     board = args.board
 
     if session_name:
         info = load_session(session_name)
-        if info:
+        if info and is_session_alive(session_name):
             pid = info.get("pid", "?")
             print(f"ttypal-daemon ({session_name}): 运行中 [PID {pid}]")
             print(f"  profile: {info.get('profile', '?')}")
