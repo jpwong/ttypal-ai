@@ -11,7 +11,7 @@ PyPI: `ttypal-ai` | CLI: `ttypal`, `ttypal-send`, `ttypal-tail`, `ttypal-daemon`
 | `make test-e2e` | CLI e2e tests only |
 | `make install` | Editable install in venv |
 | `make build` | Build distribution packages (sdist + wheel) |
-| `make release` | Full release: version check → build → PyPI upload → cskills publish |
+| `make release` | Full release: version check → clean dist → build → PyPI upload → cskills publish |
 | `make version` | Print current version |
 
 ### Testing Workflow (MANDATORY before any commit)

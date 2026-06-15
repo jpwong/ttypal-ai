@@ -2,8 +2,9 @@ VENV    := $(HOME)/ttypal/.venv
 PYTEST  := $(VENV)/bin/pytest
 PYTHON  := $(VENV)/bin/python
 PIP     := $(VENV)/bin/pip
+VERSION := $(shell $(PYTHON) -c "from ttypal import __version__; print(__version__)")
 
-.PHONY: test test-unit test-e2e install build release version
+.PHONY: test test-unit test-e2e install build clean-dist check-version release version
 
 test:
 	$(PYTEST) tests/ -v
@@ -23,7 +24,10 @@ install:
 build:
 	$(PYTHON) -m build
 
-release: build
+clean-dist:
+	rm -rf dist/*
+
+check-version:
 	@echo "Checking version consistency..."
 	@INIT_VER=$$($(PYTHON) -c "from ttypal import __version__; print(__version__)"); \
 	TOML_VER=$$($(PYTHON) -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"); \
@@ -32,7 +36,9 @@ release: build
 		exit 1; \
 	fi; \
 	echo "Version $$INIT_VER OK"
-	twine upload dist/*
+
+release: check-version clean-dist build
+	twine upload dist/ttypal_ai-$(VERSION)*
 	echo y | cskills publish .claude/skills/ttypal
 
 version:
