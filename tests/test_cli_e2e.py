@@ -227,6 +227,36 @@ class TestSendWait:
         finally:
             _stop_server(srv, logger, stop, t)
 
+    def test_wait_marker_in_truncated_long_command_echo(self, tmp_path):
+        """完成标记出现在长命令回显里时，不能提前截断输出"""
+        marker = "__TTYPAL_DONE_123456__"
+        base_cmd = (
+            "iface='eth0'; timeout=60; command -v dhcpcd; "
+            "addr=\"$(ip -4 -o addr show dev \"$iface\" scope global | "
+            "awk '{ print $4; exit }')\"; ip link set \"$iface\" up; "
+            "echo SV15_DHCPCD_OK; echo SV15_DHCP_ADDR=192.0.2.10/24"
+        )
+        cmd = f"{base_cmd}; printf '\\n{marker}\\n'"
+        events = [
+            {"t": 0.0, "dir": "rx", "hex": b"~ # ".hex()},
+            {"t": 0.5, "dir": "rx", "hex": (cmd[110:] + "\r\n").encode().hex()},
+            {"t": 0.8, "dir": "rx", "hex": b"/sbin/dhcpcd\r\n".hex()},
+            {"t": 0.9, "dir": "rx", "hex": b"SV15_DHCPCD_OK\r\n".hex()},
+            {"t": 1.0, "dir": "rx", "hex": b"SV15_DHCP_ADDR=192.0.2.10/24\r\n".hex()},
+            {"t": 1.1, "dir": "rx", "hex": (marker + "\r\n").encode().hex()},
+        ]
+        srv, logger, t, stop, sock, backend = _start_server(
+            tmp_path, events, prompt=marker)
+        try:
+            resp = _send_request(sock, {
+                "cmd": "send_wait", "data": cmd,
+                "prompt": marker, "timeout": 5})
+            assert resp["status"] == "ok"
+            assert "SV15_DHCPCD_OK" in resp["output"]
+            assert "SV15_DHCP_ADDR=192.0.2.10/24" in resp["output"]
+        finally:
+            _stop_server(srv, logger, stop, t)
+
     def test_wait_custom_prompt(self, tmp_path):
         """--wait 自定义 prompt"""
         prompt = "$ "

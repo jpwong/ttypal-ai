@@ -31,6 +31,14 @@
 | test_logger_captures_replay_output | 验证 replay 回放数据正确写入日志文件 |
 | test_socket_probe | 通过 socket 发送 probe 命令，验证发送回车并返回设备响应 |
 
+## test_cli_e2e.py — CLI 端到端测试
+
+使用 ReplayBackend 模拟设备，通过 socket 和 subprocess 验证 `ttypal-send` / `ttypal-tail` / `ttypal-daemon` 行为。
+
+| 用例 | 说明 |
+|------|------|
+| test_wait_marker_in_truncated_long_command_echo | 长命令回显被截断且回显中包含完成标记时，`send_wait` 等待真正单独输出的完成标记后再返回 |
+
 ## test_logger.py — 日志记录器
 
 | 用例 | 说明 |

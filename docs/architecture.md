@@ -65,11 +65,16 @@ When `-S` is omitted, session name defaults to board name. Client tools (`ttypal
 
 ### send_wait Prompt Matching
 `socket_server.py` `_wait_for_prompt_after_cmd()` logic:
-1. Search the log file for the command echo text
+1. Search the log file for the command echo text, or a sufficiently long suffix of it when the serial console dropped/redrew the beginning of a long echoed line
 2. Find the next prompt occurrence after the echo
 3. Return everything in between
 
-**Known issue:** If command output contains the prompt string (e.g. `#`), it truncates early. Use full prompt (e.g. `root@rockchip:/`) to mitigate.
+When no usable full/suffix command echo can be matched, fallback prompt matching
+only accepts a prompt at the start of a new line. This prevents completion
+markers embedded in the echoed command text, such as `printf '\n__DONE__\n'`,
+from ending the wait before the command output is logged.
+
+**Known issue:** If command output starts a line with the prompt string (e.g. `#`), it may still truncate early. Use full prompt (e.g. `root@rockchip:/`) or a unique completion marker to mitigate.
 
 ### File Transfer (ZMODEM)
 `zmodem_transfer.py` bridges host-side `lrzsz` (`sz`/`rz`) with the serial port for ZMODEM file transfer. The host needs `lrzsz` installed, the device needs `rz`/`sz` (BusyBox or lrzsz).
@@ -100,7 +105,7 @@ JSONL, one event per line: `{"t": seconds, "dir": "rx"|"tx", "hex": "hexstring"}
 
 ## TODO
 
-- send_wait prompt matching is fragile with output containing `#`
+- send_wait prompt matching is fragile when output starts a line with a short prompt such as `#`
 - Replay TX-triggered mode (currently plays RX sequentially, ignores input)
 - CI/CD pipeline (GitHub Actions)
 - **已知问题 (RK平台 FIQ Debugger):** ZMODEM 传输中文件数据或协议帧均可能触发 FIQ debugger，目前无有效软件规避方法。文件越大触发概率越高，<100KB 基本可靠，大文件请用网络传输或关闭 FIQ debugger (`no_fiq_debugger`)

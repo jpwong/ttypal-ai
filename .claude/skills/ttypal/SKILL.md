@@ -162,7 +162,7 @@ The `--wait` flag takes the shell prompt string. Common prompts:
 - `"$ "` — normal user shell
 - `"root@hostname:/"` — full prompt (more reliable but board-specific)
 
-**IMPORTANT**: If the command output contains the prompt string (e.g., script output containing `#`), use the full prompt like `"root@boardname:/"` to avoid premature matching.
+**IMPORTANT**: If the command output starts a line with the prompt string (e.g., script output containing `#`), use the full prompt like `"root@boardname:/"` or a unique completion marker to avoid premature matching.
 
 ## Reading serial output / logs
 
@@ -209,7 +209,7 @@ ttypal-daemon stop -S mysession
 
 3. **Background prints are normal.** The device may print kernel messages or application logs at any time. These appear interleaved in `ttypal-tail` output. This is expected serial console behavior, not a bug.
 
-4. **Prompt matching is best-effort.** The `send_wait` mechanism searches the log for the command echo and the next prompt occurrence. It works well for short commands with clean output but may fail for commands that produce output containing the prompt string.
+4. **Prompt matching is best-effort.** The `send_wait` mechanism searches the log for the command echo and the next prompt occurrence. If a long command echo cannot be matched exactly, fallback matching ignores prompt-like text in the middle of echoed command lines, but commands whose output starts a line with the prompt string can still match early.
 
 ## Typical AI workflow
 

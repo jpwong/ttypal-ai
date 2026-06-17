@@ -207,6 +207,24 @@ class SocketServer:
         after_cmd = ""
         empty_count = 0
 
+        def _find_echo_end(text, command):
+            pos = text.rfind(command)
+            if pos >= 0:
+                return pos + len(command), True
+
+            # Serial consoles may drop or redraw the beginning of long echoed
+            # input lines. A sufficiently long command suffix is still a usable
+            # echo boundary and prevents fallback matching inside the echo.
+            min_suffix = min(len(command), 32)
+            if len(command) < min_suffix:
+                return -1, False
+            for start in range(1, len(command) - min_suffix + 1):
+                suffix = command[start:]
+                pos = text.rfind(suffix)
+                if pos >= 0:
+                    return pos + len(suffix), True
+            return -1, False
+
         while time.monotonic() < deadline:
             with open(log_path, "rb") as f:
                 content = f.read().decode("utf-8", errors="replace")
@@ -233,18 +251,44 @@ class SocketServer:
             base = content if use_full else (after_mark if mark > 0 else content)
             plain = _to_plain(base)
 
-            cmd_pos = plain.rfind(cmd_clean)
+            cmd_end, matched_echo = _find_echo_end(plain, cmd_clean)
 
-            if cmd_pos >= 0:
-                after_cmd = plain[cmd_pos + len(cmd_clean):]
+            if matched_echo:
+                after_cmd = plain[cmd_end:]
             else:
                 after_cmd = plain
 
             prompt_stripped = prompt.rstrip()
-            if cmd_pos >= 0:
-                prompt_pos = after_cmd.find(prompt_stripped)
+
+            def _find_prompt(text, require_line_start=False):
+                variants = [prompt]
+                if prompt_stripped and prompt_stripped != prompt:
+                    variants.append(prompt_stripped)
+
+                best = -1
+                for value in variants:
+                    if not value:
+                        continue
+                    start = 0
+                    while True:
+                        pos = text.find(value, start)
+                        if pos < 0:
+                            break
+                        if (not require_line_start
+                                or pos == 0
+                                or text[pos - 1] in "\r\n"):
+                            if best < 0 or pos < best:
+                                best = pos
+                            break
+                        start = pos + 1
+                return best
+
+            if matched_echo:
+                prompt_pos = _find_prompt(after_cmd)
             else:
-                prompt_pos = after_cmd.rfind(prompt_stripped)
+                # If the complete command echo was not found, prompt-like text in
+                # the echoed command itself must not be treated as completion.
+                prompt_pos = _find_prompt(after_cmd, require_line_start=True)
             if prompt_pos >= 0:
                 if use_full or (mark > 0 and after_mark.strip()):
                     result = after_cmd[:prompt_pos + len(prompt_stripped)]
@@ -252,4 +296,4 @@ class SocketServer:
 
             time.sleep(0.05)
 
-        return after_cmd.strip("\r\n") if cmd_pos >= 0 else ""
+        return after_cmd.strip("\r\n") if matched_echo else ""
