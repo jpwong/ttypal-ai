@@ -6,7 +6,8 @@ import pytest
 
 from ttypal.session import (
     session_file, save_session, load_session, remove_session,
-    list_sessions, find_socket, is_session_alive, SESSION_DIR,
+    list_sessions, find_socket, resolve_socket, is_session_alive, SESSION_DIR,
+    BoardSessionNotFound, MultipleSessionsFound, SessionNotFound,
 )
 
 
@@ -134,3 +135,31 @@ class TestFindSocket:
     def test_auto_detect_none(self, session_dir):
         with pytest.raises(SystemExit):
             find_socket()
+
+
+class TestResolveSocket:
+    def test_by_session_name(self, session_dir):
+        save_session("left", {"profile": "rk3588", "socket": "/tmp/ttypal-left.sock", "pid": os.getpid()})
+        assert resolve_socket(session="left") == "/tmp/ttypal-left.sock"
+
+    def test_by_session_name_not_found(self, session_dir):
+        with pytest.raises(SessionNotFound):
+            resolve_socket(session="nope")
+
+    def test_by_board_single(self, session_dir):
+        save_session("left", {"profile": "rk3588", "socket": "/tmp/ttypal-left.sock", "pid": os.getpid()})
+        assert resolve_socket(board="rk3588") == "/tmp/ttypal-left.sock"
+
+    def test_by_board_multiple(self, session_dir):
+        save_session("left", {"profile": "rk3588", "socket": "/tmp/ttypal-left.sock", "pid": os.getpid()})
+        save_session("right", {"profile": "rk3588", "socket": "/tmp/ttypal-right.sock", "pid": os.getpid()})
+        with pytest.raises(MultipleSessionsFound):
+            resolve_socket(board="rk3588")
+
+    def test_by_board_not_found(self, session_dir):
+        with pytest.raises(BoardSessionNotFound):
+            resolve_socket(board="nonexistent")
+
+    def test_auto_detect_single(self, session_dir):
+        save_session("only", {"profile": "rk3588", "socket": "/tmp/ttypal-only.sock", "pid": os.getpid()})
+        assert resolve_socket() == "/tmp/ttypal-only.sock"

@@ -1,26 +1,19 @@
 #!/usr/bin/env python3
 import argparse
-import json
 import os
-import socket
 import sys
 
+from .client import TtypalClient, TtypalClientError
 
-def send_request(sock_path, req, timeout=180):
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.connect(sock_path)
-    s.settimeout(timeout)
-    s.sendall(json.dumps(req).encode() + b"\n")
-    s.shutdown(socket.SHUT_WR)
 
-    resp_data = b""
-    while True:
-        chunk = s.recv(4096)
-        if not chunk:
-            break
-        resp_data += chunk
-    s.close()
-    return json.loads(resp_data)
+def _client_from_args(args):
+    if args.socket:
+        return TtypalClient(socket_path=args.socket)
+    if args.session:
+        return TtypalClient(session=args.session)
+    if args.board:
+        return TtypalClient(board=args.board)
+    return TtypalClient()
 
 
 def main():
@@ -37,50 +30,43 @@ def main():
     parser.add_argument("--timeout", "-t", type=int, default=120, help="传输超时秒数 (默认 120)")
     args = parser.parse_args()
 
-    from ttypal.session import find_socket
-    sock_path = args.socket or find_socket(session=args.session, board=args.board)
-
     try:
+        client = _client_from_args(args)
+
         if args.put:
             if not os.path.isfile(args.put):
                 print(f"文件不存在: {args.put}", file=sys.stderr)
                 sys.exit(1)
-            req = {
-                "cmd": "zmodem_send",
-                "file": os.path.abspath(args.put),
-                "timeout": args.timeout,
-            }
-            resp = send_request(sock_path, req, timeout=args.timeout + 30)
-
-            if resp.get("status") == "ok":
-                print(f"发送成功: {resp.get('bytes_sent', '?')} 字节")
-            else:
-                print(f"发送失败: {resp.get('message', 'unknown')}", file=sys.stderr)
-                sys.exit(1)
+            resp = client.request(
+                {
+                    "cmd": "zmodem_send",
+                    "file": os.path.abspath(args.put),
+                    "timeout": args.timeout,
+                },
+                operation_timeout=args.timeout,
+                io_timeout=args.timeout + 30,
+            )
+            print(f"发送成功: {resp.get('bytes_sent', '?')} 字节")
 
         elif args.get:
             local_dir = os.path.abspath(args.dest or ".")
-            req = {
-                "cmd": "zmodem_recv",
-                "remote_file": args.get,
-                "local_path": local_dir,
-                "timeout": args.timeout,
-            }
-            resp = send_request(sock_path, req, timeout=args.timeout + 30)
+            resp = client.request(
+                {
+                    "cmd": "zmodem_recv",
+                    "remote_file": args.get,
+                    "local_path": local_dir,
+                    "timeout": args.timeout,
+                },
+                operation_timeout=args.timeout,
+                io_timeout=args.timeout + 30,
+            )
+            path = resp.get("path", local_dir)
+            size = resp.get("bytes_received", "?")
+            print(f"接收成功: {size} 字节 -> {path}")
 
-            if resp.get("status") == "ok":
-                path = resp.get("path", local_dir)
-                size = resp.get("bytes_received", "?")
-                print(f"接收成功: {size} 字节 -> {path}")
-            else:
-                print(f"接收失败: {resp.get('message', 'unknown')}", file=sys.stderr)
-                sys.exit(1)
-
-    except ConnectionRefusedError:
-        print("无法连接 ttypal，确认是否在运行", file=sys.stderr)
-        sys.exit(1)
-    except FileNotFoundError:
-        print(f"Socket 不存在: {sock_path}", file=sys.stderr)
+    except TtypalClientError as exc:
+        action = "发送" if args.put else "接收"
+        print(f"{action}失败: {exc}", file=sys.stderr)
         sys.exit(1)
 
 

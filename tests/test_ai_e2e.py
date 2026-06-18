@@ -137,7 +137,7 @@ def test_ai_send_simple_no_wait(tmp_path):
 
 
 def test_ai_send_wait_timeout(tmp_path):
-    """AI 发命令等待一个不会出现的 prompt，验证超时后仍返回已收集的数据"""
+    """AI 发命令等待一个不会出现的 prompt，验证返回结构化超时和已收集数据"""
     backend = ReplayBackend(str(FIXTURES / "basic_commands.rec"), realtime=True)
     backend.open()
 
@@ -159,8 +159,8 @@ def test_ai_send_wait_timeout(tmp_path):
         "timeout": 1,
     })
 
-    # 超时也应该返回 ok 并附带已收集的输出
-    assert resp["status"] == "ok"
+    assert resp["status"] == "error"
+    assert resp["code"] == "wait_timeout"
     assert "output" in resp
 
     stop.set()

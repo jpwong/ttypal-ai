@@ -9,7 +9,22 @@
 | test_ai_send_echo_gets_correct_output | 发送 echo 命令并等待 prompt，验证返回的输出内容正确 |
 | test_ai_send_uname_gets_kernel_info | 发送 uname -a 命令，验证返回包含内核信息 |
 | test_ai_send_simple_no_wait | 仅发送命令不等待响应 (fire-and-forget)，验证不阻塞 |
-| test_ai_send_wait_timeout | 发送命令等待一个不存在的 prompt，验证超时后返回已收集的内容 |
+| test_ai_send_wait_timeout | 发送命令等待一个不存在的 prompt，验证返回结构化超时错误并保留已收集内容 |
+
+## test_client.py — Python Client API
+
+验证 `TtypalClient` 的公开 API、socket I/O、协议校验和异常映射。
+
+| 用例 | 说明 |
+|------|------|
+| test_constructor_rejects_multiple_selectors | 构造器拒绝同时传入多个 session/board/socket selector |
+| test_send_wait_success | `send_wait()` 生成正确请求并返回 daemon output |
+| test_daemon_error_maps_to_daemon_error | daemon 普通错误映射为 `TtypalDaemonError` |
+| test_wait_timeout_preserves_output | daemon `wait_timeout` 映射为 `TtypalTimeoutError` 并保留 partial output |
+| test_missing_socket_maps_to_socket_not_found | socket 文件缺失映射为 `TtypalSocketNotFound` |
+| test_refused_connection_maps_to_connection_error | socket 拒绝连接映射为 `TtypalConnectionError` |
+| test_invalid_json_maps_to_protocol_error | 非 JSON 响应映射为 `TtypalProtocolError` |
+| test_malformed_response_maps_to_protocol_error | 缺少 `status` 的响应映射为 `TtypalProtocolError` |
 
 ## test_config.py — 板子配置管理
 
@@ -44,7 +59,7 @@
 | 用例 | 说明 |
 |------|------|
 | test_wait_for_prompt_after_cmd_returns_command_output | 使用发送前日志偏移等待 prompt 时，返回命令回显之后的输出 |
-| test_wait_for_prompt_after_cmd_times_out_instead_of_empty_success | mark 后只有命令回显、没有 prompt 时，超时返回空字符串而不是误判成功 |
+| test_wait_for_prompt_after_cmd_times_out_instead_of_empty_success | mark 后只有命令回显、没有 prompt 时，返回未匹配结果而不是误判成功 |
 | test_wait_for_prompt_after_cmd_uses_byte_mark_with_unicode_prefix | mark 前存在 UTF-8 多字节字符时，按字节偏移切片并正确返回命令输出 |
 
 ## test_logger.py — 日志记录器

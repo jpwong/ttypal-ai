@@ -14,6 +14,14 @@ from ttypal.logger import Logger
 from ttypal.socket_server import SocketServer
 
 
+def _start_reader(backend, logger, stop_event):
+    while not stop_event.is_set():
+        data = backend.read()
+        if data:
+            logger.write(data)
+        time.sleep(0.01)
+
+
 def _create_recording(tmp_path):
     rec_file = tmp_path / "session.rec"
     # 模拟设备输出 prompt，然后输出命令结果，再输出 prompt
@@ -68,8 +76,9 @@ def test_socket_send_wait(tmp_path):
     rec_file = tmp_path / "session2.rec"
     events = [
         {"t": 0.0, "dir": "rx", "hex": b"# ".hex()},
-        {"t": 0.2, "dir": "rx", "hex": b"output line\r\n".hex()},
-        {"t": 0.3, "dir": "rx", "hex": b"# ".hex()},
+        {"t": 0.2, "dir": "rx", "hex": b"ls\r\n".hex()},
+        {"t": 0.3, "dir": "rx", "hex": b"output line\r\n".hex()},
+        {"t": 0.4, "dir": "rx", "hex": b"# ".hex()},
     ]
     with open(rec_file, "w") as f:
         for e in events:
@@ -82,6 +91,9 @@ def test_socket_send_wait(tmp_path):
     sock_path = str(tmp_path / "test2.sock")
     srv = SocketServer(backend, logger, sock_path, "# ")
     srv.start()
+    stop = threading.Event()
+    reader = threading.Thread(target=_start_reader, args=(backend, logger, stop))
+    reader.start()
 
     time.sleep(0.2)
 
@@ -103,6 +115,8 @@ def test_socket_send_wait(tmp_path):
     assert resp["status"] == "ok"
     assert "output" in resp
 
+    stop.set()
+    reader.join(timeout=1)
     srv.stop()
     logger.close()
 

@@ -388,8 +388,9 @@ class TestSendTimeout:
                 ["ttypal-send", "--socket", sock,
                  "--wait", "NEVER_MATCH", "--timeout", "2", "ls"])
             elapsed = time.monotonic() - start
-            assert rc == 0  # 超时也返回 ok，附带已收集输出
+            assert rc == 1
             assert 1.5 < elapsed < 4.0
+            assert "超时" in err
         finally:
             _stop_server(srv, logger, stop, t)
 

@@ -16,6 +16,7 @@ ttypal/                     # Python module
 ├── socket_server.py        # Unix domain socket for command injection + ZMODEM transfer
 ├── recorder.py             # Record raw RX/TX byte streams (JSONL format)
 ├── replay_backend.py       # Replay backend, replaces real serial for testing
+├── client.py               # Python client API for daemon socket requests
 ├── cli_send.py             # ttypal-send command
 ├── cli_tail.py             # ttypal-tail command (cross-file, session-bounded)
 ├── cli_xfer.py             # ttypal-xfer command (ZMODEM file transfer)
@@ -42,7 +43,7 @@ docs/
 ├── zmodem-bench.md         # ZMODEM performance test report
 └── test-cases.md           # Test case documentation
 
-.claude/skills/ttypal/SKILL.md  # Claude Code skill definition
+.agents/skills/ttypal/SKILL.md  # AI agent skill definition
 ```
 
 ## Key Design Decisions
@@ -53,6 +54,30 @@ Two distinct concepts:
 - **Session**: `-S/--session` — a running instance, identified by name. Determines socket/pid/log paths. Stored in `/tmp/ttypal-*.session`.
 
 When `-S` is omitted, session name defaults to board name. Client tools (`ttypal-send`, `ttypal-tail`, `ttypal-xfer`) can find sessions by `-S name` directly or by `-b board` (scans session files for matching profile).
+
+`ttypal.client.TtypalClient` is the Python API for automation and CI. It resolves
+the target daemon socket, sends newline-delimited JSON requests, validates daemon
+responses, and maps failures to structured exceptions. `ttypal-send` and
+`ttypal-xfer` are thin CLI wrappers around the same client request path.
+
+### Daemon Socket Protocol
+
+Requests are newline-delimited JSON over a Unix domain socket. Successful
+responses use:
+
+```json
+{"status": "ok", "output": "optional output"}
+```
+
+Errors use stable codes:
+
+```json
+{"status": "error", "code": "wait_timeout", "message": "...", "output": "..."}
+```
+
+Known error codes include `bad_request`, `unknown_command`, `wait_timeout`,
+`transfer_failed`, and `internal_error`. Client code should branch on `code`,
+not localized `message` text.
 
 ### Serial Port Locking
 `serial_conn.py` uses flock on `/tmp/ttypal-<port>.lock` to prevent multiple instances from opening the same port. Lock auto-releases on process exit. The lock file may remain in `/tmp`; this is normal because the active lock is tied to the open file descriptor, not the pathname. For multi-user use, ttypal can acquire the flock through a read-only descriptor if another user owns the leftover lock file; writing the PID into the lock file is best-effort only.
@@ -68,6 +93,9 @@ When `-S` is omitted, session name defaults to board name. Client tools (`ttypal
 1. Search the log file for the command echo text, or a sufficiently long suffix of it when the serial console dropped/redrew the beginning of a long echoed line
 2. Find the next prompt occurrence after the echo
 3. Return everything in between
+
+The helper returns whether the prompt was matched. Prompt timeout is reported as
+`status=error`, `code=wait_timeout`, with partial output when available.
 
 The starting mark passed to this logic is a byte offset from the log file size.
 Log scanning slices raw bytes at that mark before UTF-8 decoding so non-ASCII
@@ -112,4 +140,15 @@ JSONL, one event per line: `{"t": seconds, "dir": "rx"|"tx", "hex": "hexstring"}
 - send_wait prompt matching is fragile when output starts a line with a short prompt such as `#`
 - Replay TX-triggered mode (currently plays RX sequentially, ignores input)
 - CI/CD pipeline (GitHub Actions)
+- `ttypal-daemon status` currently treats a live PID as running even when the
+  daemon socket is unreachable. It should distinguish healthy, unreachable,
+  stale metadata, and permission-denied cross-user sessions.
+- `ttypal-daemon start` can print "启动中" even if the daemon exits shortly
+  after startup due to serial lock/permission issues. Startup should wait for
+  initialization and socket readiness, then return non-zero with the real
+  failure reason when the daemon cannot serve requests.
+- `expect_send` / `--wait-for` currently searches recent log content and can
+  match stale prompts such as an old `Password:`. Login flows can then send the
+  next credential to the wrong prompt. It should prefer a fresh log mark or a
+  session-aware wait window for interactive login sequences.
 - **已知问题 (RK平台 FIQ Debugger):** ZMODEM 传输中文件数据或协议帧均可能触发 FIQ debugger，目前无有效软件规避方法。文件越大触发概率越高，<100KB 基本可靠，大文件请用网络传输或关闭 FIQ debugger (`no_fiq_debugger`)

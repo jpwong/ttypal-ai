@@ -18,11 +18,12 @@ def test_wait_for_prompt_after_cmd_returns_command_output(tmp_path):
     log_path = Path(tmp_path) / "serial.log"
     log_path.write_text(prefix + "uname -m\naarch64\n~ # ", encoding="utf-8")
 
-    output = _server_for_log(log_path)._wait_for_prompt_after_cmd(
+    result = _server_for_log(log_path)._wait_for_prompt_after_cmd(
         "uname -m", "# ", 1, len(prefix)
     )
 
-    assert "aarch64" in output
+    assert result.matched is True
+    assert "aarch64" in result.output
 
 
 def test_wait_for_prompt_after_cmd_times_out_instead_of_empty_success(tmp_path):
@@ -30,11 +31,12 @@ def test_wait_for_prompt_after_cmd_times_out_instead_of_empty_success(tmp_path):
     log_path = Path(tmp_path) / "serial.log"
     log_path.write_text(prefix + "uname -m\n", encoding="utf-8")
 
-    output = _server_for_log(log_path)._wait_for_prompt_after_cmd(
+    result = _server_for_log(log_path)._wait_for_prompt_after_cmd(
         "uname -m", "# ", 0.05, len(prefix)
     )
 
-    assert output == ""
+    assert result.matched is False
+    assert result.output == ""
 
 
 def test_wait_for_prompt_after_cmd_uses_byte_mark_with_unicode_prefix(tmp_path):
@@ -42,8 +44,9 @@ def test_wait_for_prompt_after_cmd_uses_byte_mark_with_unicode_prefix(tmp_path):
     log_path = Path(tmp_path) / "serial.log"
     log_path.write_text(prefix + "uname -m\naarch64\n~ # ", encoding="utf-8")
 
-    output = _server_for_log(log_path)._wait_for_prompt_after_cmd(
+    result = _server_for_log(log_path)._wait_for_prompt_after_cmd(
         "uname -m", "# ", 1, len(prefix.encode("utf-8"))
     )
 
-    assert "aarch64" in output
+    assert result.matched is True
+    assert "aarch64" in result.output

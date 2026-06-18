@@ -13,6 +13,22 @@ from pathlib import Path
 SESSION_DIR = Path("/tmp")
 
 
+class SessionLookupError(Exception):
+    """Base error for session/socket lookup failures."""
+
+
+class SessionNotFound(SessionLookupError):
+    """Named session does not exist or is not alive."""
+
+
+class BoardSessionNotFound(SessionLookupError):
+    """No active session matches the requested board profile."""
+
+
+class MultipleSessionsFound(SessionLookupError):
+    """Lookup is ambiguous because multiple sessions match."""
+
+
 def session_file(name):
     """Return the path to a session metadata file."""
     return SESSION_DIR / f"ttypal-{name}.session"
@@ -89,8 +105,8 @@ def list_sessions():
     return sorted(sessions, key=lambda x: x[0])
 
 
-def find_socket(session=None, board=None):
-    """Find the socket path for a session.
+def resolve_socket(*, session=None, board=None):
+    """Resolve the socket path for a session.
 
     - session: look up by session name directly
     - board: scan session files for matching profile
@@ -99,9 +115,10 @@ def find_socket(session=None, board=None):
     Falls back to scanning /tmp/ttypal-*.sock files if no .session
     metadata exists (e.g. older interactive terminal instances).
 
-    Returns socket path string. Prints error and exits on failure.
+    Returns socket path string. Raises SessionLookupError on failure.
     """
-    import sys
+    if session and board:
+        raise MultipleSessionsFound("Use either session or board, not both")
 
     if session:
         info = load_session(session)
@@ -111,8 +128,7 @@ def find_socket(session=None, board=None):
         sock_path = SESSION_DIR / f"ttypal-{session}.sock"
         if sock_path.exists():
             return str(sock_path)
-        print(f"Session '{session}' not found or not running", file=sys.stderr)
-        sys.exit(1)
+        raise SessionNotFound(f"Session '{session}' not found or not running")
 
     sessions = list_sessions()
 
@@ -121,35 +137,53 @@ def find_socket(session=None, board=None):
         if len(matches) == 1:
             return matches[0][1]["socket"]
         if len(matches) > 1:
-            print(f"Multiple sessions with profile '{board}', use -S to specify:", file=sys.stderr)
-            for name, _ in matches:
-                print(f"  {name}", file=sys.stderr)
-            sys.exit(1)
+            names = ", ".join(name for name, _ in matches)
+            raise MultipleSessionsFound(
+                f"Multiple sessions with profile '{board}', use -S to specify: {names}"
+            )
         # Fallback: check .sock file by board name
         sock_path = SESSION_DIR / f"ttypal-{board}.sock"
         if sock_path.exists():
             return str(sock_path)
-        print(f"板子 '{board}' 的 ttypal 未运行 (未找到匹配的 session)", file=sys.stderr)
-        sys.exit(1)
+        raise BoardSessionNotFound(
+            f"板子 '{board}' 的 ttypal 未运行 (未找到匹配的 session)"
+        )
 
     # Auto-detect
     if len(sessions) == 1:
         return sessions[0][1]["socket"]
     if len(sessions) > 1:
-        print("Multiple sessions running, use -b or -S to specify:", file=sys.stderr)
-        for name, info in sessions:
-            print(f"  {name} (profile: {info.get('profile', '?')})", file=sys.stderr)
-        sys.exit(1)
+        details = ", ".join(
+            f"{name} (profile: {info.get('profile', '?')})" for name, info in sessions
+        )
+        raise MultipleSessionsFound(
+            f"Multiple sessions running, use -b or -S to specify: {details}"
+        )
 
     # Fallback: scan for .sock files without .session metadata
     sock_files = list(SESSION_DIR.glob("ttypal-*.sock"))
     if len(sock_files) == 1:
         return str(sock_files[0])
     if len(sock_files) > 1:
-        print("Multiple ttypal sockets found (no session metadata), use --socket to specify:", file=sys.stderr)
-        for s in sock_files:
-            print(f"  {s}", file=sys.stderr)
-        sys.exit(1)
+        details = ", ".join(str(s) for s in sock_files)
+        raise MultipleSessionsFound(
+            "Multiple ttypal sockets found (no session metadata), "
+            f"use --socket to specify: {details}"
+        )
 
-    print("No active ttypal sessions found", file=sys.stderr)
-    sys.exit(1)
+    raise SessionNotFound("No active ttypal sessions found")
+
+
+def find_socket(session=None, board=None):
+    """Find the socket path for a session.
+
+    CLI compatibility wrapper around resolve_socket(). Prints errors and exits
+    on failure.
+    """
+    import sys
+
+    try:
+        return resolve_socket(session=session, board=board)
+    except SessionLookupError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)

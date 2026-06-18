@@ -3,8 +3,9 @@ PYTEST  := $(VENV)/bin/pytest
 PYTHON  := $(VENV)/bin/python
 PIP     := $(VENV)/bin/pip
 VERSION := $(shell $(PYTHON) -c "from ttypal import __version__; print(__version__)")
+CSKILL_PATH := .agents/skills/ttypal
 
-.PHONY: test test-unit test-e2e install build clean-dist check-version release version
+.PHONY: test test-unit test-e2e install build clean-dist check-version publish-cskill release version
 
 test:
 	$(PYTEST) tests/ -v
@@ -37,9 +38,34 @@ check-version:
 	fi; \
 	echo "Version $$INIT_VER OK"
 
+publish-cskill:
+	@BASE_TAG=$$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true); \
+	CHANGED=0; \
+	if [ -z "$$BASE_TAG" ]; then \
+		echo "No previous version tag found; cskill will be published."; \
+		CHANGED=1; \
+	elif ! git diff --quiet "$$BASE_TAG"..HEAD -- $(CSKILL_PATH); then \
+		echo "cskill changed since $$BASE_TAG."; \
+		CHANGED=1; \
+	fi; \
+	if ! git diff --quiet -- $(CSKILL_PATH); then \
+		echo "cskill has uncommitted changes."; \
+		CHANGED=1; \
+	fi; \
+	if [ -n "$$(git ls-files --others --exclude-standard -- $(CSKILL_PATH))" ]; then \
+		echo "cskill has untracked files."; \
+		CHANGED=1; \
+	fi; \
+	if [ "$$CHANGED" = "0" ]; then \
+		echo "cskill unchanged; skipping cskills publish."; \
+	else \
+		echo "Publishing cskill."; \
+		echo y | cskills publish $(CSKILL_PATH); \
+	fi
+
 release: check-version clean-dist build
 	twine upload dist/ttypal_ai-$(VERSION)*
-	echo y | cskills publish .claude/skills/ttypal
+	$(MAKE) publish-cskill
 
 version:
 	@$(PYTHON) -c "from ttypal import __version__; print(__version__)"

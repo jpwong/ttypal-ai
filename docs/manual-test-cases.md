@@ -23,7 +23,7 @@
 | S05a | --wait 完成标记出现在长命令回显中 | `ttypal-send --wait "__DONE_123__" "echo before; printf '\n__DONE_123__\n'"` | exit 0，返回 `before`，不会在命令回显里的标记处提前结束 |
 | S05b | --wait 前置日志包含 Unicode | 先运行 `ttypal-send --wait "# " "echo 启动日志"`，再运行 `ttypal-send --wait "# " "uname -m"` | exit 0，第二条命令返回架构信息，mark 按字节偏移处理不受 UTF-8 多字节字符影响 |
 | S06 | --wait 自定义 prompt | `ttypal-send --wait "$ " "whoami"` | exit 0，返回 whoami 输出 |
-| S07 | --timeout 自定义 | `ttypal-send --wait "NEVER_MATCH" --timeout 2 "ls"` | 2秒后超时，exit 0，返回已收集输出 |
+| S07 | --timeout 自定义 | `ttypal-send --wait "NEVER_MATCH" --timeout 2 "ls"` | 2秒后超时，exit 1，报错包含"超时"，保留已收集输出用于 Python API 异常 |
 | S08 | 特殊字符 | `ttypal-send "echo 'hello world' && echo $HOME"` | exit 0，正确发送 |
 | S09 | Unicode | `ttypal-send "echo 你好世界"` | exit 0，正确发送 |
 
@@ -78,6 +78,8 @@
 | D02 | stop 停止 | `ttypal-daemon stop` | exit 0，等待 daemon 退出后报告停止成功 |
 | D03 | status 未运行 | `ttypal-daemon stop` 后 `ttypal-daemon status` | exit 0，报告未运行 |
 | D04 | start 启动 | `ttypal-daemon start -b <board>` | exit 0，启动成功 |
+| D05 | 跨用户不可达 session | 存在其他用户启动的 session，socket 连接失败时运行 `ttypal-daemon status` / `ttypal-send -S <session> --probe` | status 应能暴露 session 不可达、owner/PID/socket 信息；send 返回明确连接失败 |
+| D06 | start 初始化失败 | 串口被其他进程/用户占用时运行 `ttypal-daemon start -b <board> -S <name>` | 应返回非 0，并打印串口锁/权限/初始化失败原因，而不是只打印“启动中” |
 
 ## 异常和边界情况
 
@@ -97,6 +99,7 @@
 | L02 | 完整登录（需要 login:） | `ttypal-send --wait-for "login:" --wait "Password:" "root"` 后 `ttypal-send --wait-for "Password:" --wait "# " "pwd"` | exit 0，登录成功 |
 | L03 | 仅需密码（已有 login:） | `ttypal-send --wait-for "Password:" --wait "# " "pwd"` | exit 0，登录成功 |
 | L04 | 验证登录成功 | 登录后 `ttypal-send --probe` | exit 0，返回 `# ` 或 `$ ` |
+| L05 | wait-for 不应匹配旧密码提示 | 日志里已有旧 `Password:`，设备当前在 `login:`，再执行登录流程 | 不应把密码发送到 `login:`；若当前版本复现该问题，记录为已知缺陷 |
 
 ---
 
@@ -132,6 +135,8 @@
 | v0.3.0 | E04 | 修复输出包含 prompt 字符串时提前匹配的问题 |
 | v0.3.0 | S10, S11, L01-L04 | 完善登录流程文档和测试 |
 | v0.4.0 | S17, SS01-SS06 | 引入 Session 概念，-S/--session 运行时身份 |
+| v0.9.0 | D05-D06 | 实机回归发现跨用户 stale/unreachable daemon 和 start 假成功诊断不足 |
+| v0.9.0 | L05 | 实机登录发现 `--wait-for` 可匹配旧 `Password:`，导致密码被发送到 `login:` |
 
 ---
 
