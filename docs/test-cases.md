@@ -39,6 +39,14 @@
 |------|------|
 | test_wait_marker_in_truncated_long_command_echo | 长命令回显被截断且回显中包含完成标记时，`send_wait` 等待真正单独输出的完成标记后再返回 |
 
+## test_socket_wait.py — send_wait 日志匹配
+
+| 用例 | 说明 |
+|------|------|
+| test_wait_for_prompt_after_cmd_returns_command_output | 使用发送前日志偏移等待 prompt 时，返回命令回显之后的输出 |
+| test_wait_for_prompt_after_cmd_times_out_instead_of_empty_success | mark 后只有命令回显、没有 prompt 时，超时返回空字符串而不是误判成功 |
+| test_wait_for_prompt_after_cmd_uses_byte_mark_with_unicode_prefix | mark 前存在 UTF-8 多字节字符时，按字节偏移切片并正确返回命令输出 |
+
 ## test_logger.py — 日志记录器
 
 | 用例 | 说明 |

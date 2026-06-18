@@ -69,6 +69,10 @@ When `-S` is omitted, session name defaults to board name. Client tools (`ttypal
 2. Find the next prompt occurrence after the echo
 3. Return everything in between
 
+The starting mark passed to this logic is a byte offset from the log file size.
+Log scanning slices raw bytes at that mark before UTF-8 decoding so non-ASCII
+text already present in the log cannot shift the search window.
+
 When no usable full/suffix command echo can be matched, fallback prompt matching
 only accepts a prompt at the start of a new line. This prevents completion
 markers embedded in the echoed command text, such as `printf '\n__DONE__\n'`,

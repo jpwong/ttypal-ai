@@ -21,6 +21,7 @@
 | S04 | --wait 多行输出 | `ttypal-send --wait "# " "ls /"` | exit 0，返回多行文件列表 |
 | S05 | --wait 长命令（>80字符） | `ttypal-send --wait "# " "uname -m && touch /tmp/test && which gzip zcat base64 md5sum && netstat -tlnp 2>/dev/null | grep 8899 || echo 'port 8899 free'"` | exit 0，正确返回输出（验证折行修复） |
 | S05a | --wait 完成标记出现在长命令回显中 | `ttypal-send --wait "__DONE_123__" "echo before; printf '\n__DONE_123__\n'"` | exit 0，返回 `before`，不会在命令回显里的标记处提前结束 |
+| S05b | --wait 前置日志包含 Unicode | 先运行 `ttypal-send --wait "# " "echo 启动日志"`，再运行 `ttypal-send --wait "# " "uname -m"` | exit 0，第二条命令返回架构信息，mark 按字节偏移处理不受 UTF-8 多字节字符影响 |
 | S06 | --wait 自定义 prompt | `ttypal-send --wait "$ " "whoami"` | exit 0，返回 whoami 输出 |
 | S07 | --timeout 自定义 | `ttypal-send --wait "NEVER_MATCH" --timeout 2 "ls"` | 2秒后超时，exit 0，返回已收集输出 |
 | S08 | 特殊字符 | `ttypal-send "echo 'hello world' && echo $HOME"` | exit 0，正确发送 |
@@ -104,7 +105,7 @@
 以下场景在特定改动后需要额外验证：
 
 ### 改动涉及 prompt 匹配逻辑
-- 跑 S03, S04, S05, S06, E04
+- 跑 S03, S04, S05, S05a, S05b, S06, E04
 - 验证不同 prompt 格式、长命令、输出含 prompt 的情况
 
 ### 改动涉及日志解析

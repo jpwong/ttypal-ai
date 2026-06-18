@@ -227,7 +227,7 @@ class SocketServer:
 
         while time.monotonic() < deadline:
             with open(log_path, "rb") as f:
-                content = f.read().decode("utf-8", errors="replace")
+                raw_content = f.read()
 
             def _to_plain(text):
                 lines = text.split("\n")
@@ -241,14 +241,16 @@ class SocketServer:
                         plain_lines.append(line)
                 return self._normalize_echo("\n".join(plain_lines))
 
-            after_mark = content[mark:] if mark > 0 else content
+            after_mark_raw = raw_content[mark:] if mark > 0 else raw_content
+            after_mark = after_mark_raw.decode("utf-8", errors="replace")
             use_full = mark > 0 and not after_mark.strip() and empty_count >= 10
             if mark > 0 and not after_mark.strip():
                 empty_count += 1
             else:
                 empty_count = 0
 
-            base = content if use_full else (after_mark if mark > 0 else content)
+            base_raw = raw_content if use_full else after_mark_raw
+            base = base_raw.decode("utf-8", errors="replace")
             plain = _to_plain(base)
 
             cmd_end, matched_echo = _find_echo_end(plain, cmd_clean)
