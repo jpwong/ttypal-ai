@@ -1,7 +1,7 @@
 ---
 name: ttypal
-description: "Operate serial ports through ttypal. Use for UART/serial console access, embedded Linux board debugging, sending commands to a board, reading recent serial output, logging in over a serial console, or transferring files over serial."
-allowed-tools: Bash(ttypal-send *) Bash(ttypal-tail *) Bash(ttypal-daemon *) Bash(ttypal-xfer *)
+description: "Operate serial ports through ttypal. Use for UART/serial console access, embedded Linux board debugging, ttypal-ai runtime setup and diagnosis, sending commands to a board, reading recent serial output, logging in over a serial console, or transferring files over serial."
+allowed-tools: Bash(ttypal *) Bash(ttypal-send *) Bash(ttypal-tail *) Bash(ttypal-daemon *) Bash(ttypal-xfer *) Bash(command -v *) Bash(ls *) Bash(lsusb *) Bash(dmesg *) Bash(stat *) Bash(id *) Bash(tail *) Bash(fuser *) Bash(lsof *)
 tags:
   - serial
   - uart
@@ -16,39 +16,154 @@ ttypal provides a daemon-owned serial console with command injection, logging,
 tailing, and ZMODEM file transfer. The daemon owns the physical serial device;
 agents and scripts should talk to the daemon through the Python API or CLI.
 
+## Runtime Installation
+
+This skill is operational guidance only. Loading or installing the skill does not
+install the ttypal runtime, create a board profile, attach a serial device, or
+start a daemon.
+
+The Python distribution name is **`ttypal-ai`**. Do not tell users to install a
+package named only `ttypal`.
+
+```bash
+python -m pip install ttypal-ai
+```
+
+Verify the runtime before attempting serial operations:
+
+```bash
+command -v ttypal
+ttypal --help
+command -v ttypal-daemon
+command -v ttypal-send
+```
+
+If these commands are missing, report that the runtime is not installed or not
+on `PATH`. Do not imply that the skill can access the serial console by itself.
+
 ## Operating Model
 
-- `ttypal-daemon` owns `/dev/ttyUSB*` and keeps the serial reader/logger alive.
+- `ttypal-daemon` owns `/dev/ttyUSB*` or `/dev/ttyACM*` and keeps the serial
+  reader/logger alive.
 - `TtypalClient` is the preferred API for Python automation and tests.
 - `ttypal-send`, `ttypal-tail`, and `ttypal-xfer` are CLI tools for shell-based
   workflows.
 - Do not open the serial device directly from Python tests or agent scripts.
 - Always identify the target session before sending commands.
 
-## Session Selection
+## Linux Serial Device and Permissions
 
-Before sending a command, determine the target session.
+Before starting a daemon, confirm that Linux has created a serial device node:
 
-1. If the user specified a session (`-S` value) or board profile (`-b` value),
-   use it.
-2. Otherwise run:
+```bash
+ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
+```
+
+If no device is listed, there is no serial endpoint for ttypal to open. Ask the
+user to check the USB cable and power, reconnect the adapter, and inspect host
+detection before continuing:
+
+```bash
+lsusb
+dmesg | tail -50
+```
+
+Once the device is known, inspect its owning group and the current user's group
+membership. Replace `/dev/ttyUSB0` with the actual device:
+
+```bash
+stat -c '%n owner=%U group=%G mode=%A' /dev/ttyUSB0
+id -nG
+```
+
+The device's group is authoritative. Common defaults are:
+
+- Arch Linux: `uucp`
+- Debian/Ubuntu: `dialout`
+
+Add the user to the group shown by `stat`:
+
+```bash
+# Arch Linux example
+sudo usermod -aG uucp "$USER"
+
+# Debian/Ubuntu example
+sudo usermod -aG dialout "$USER"
+```
+
+The new membership does not affect the existing login session. Log out and back
+in, or start a new shell with the relevant group, then verify again:
+
+```bash
+newgrp uucp
+# or: newgrp dialout
+id -nG
+```
+
+`sudo chmod 666 /dev/ttyUSB0` is only a temporary diagnostic workaround. It is
+lost when the device is unplugged or recreated; prefer group membership for the
+permanent fix. Do not start the daemon until the device exists and the user has
+read/write permission.
+
+## Readiness and Session Diagnosis
+
+Do not begin with `ttypal-send`. Diagnose the stack from the host downward so a
+missing runtime, missing device, permission problem, or stopped daemon is not
+misreported as a board failure.
+
+1. **Runtime:** verify `ttypal-daemon` and `ttypal-send` exist. If not, install
+   `ttypal-ai` as described above.
+2. **Device:** verify the configured `/dev/ttyUSB*` or `/dev/ttyACM*` node exists.
+   If no serial device exists, stop and report that the host has not detected a
+   usable adapter; follow the Linux device checks above.
+3. **Permission:** verify the current user can read and write the device. If not,
+   fix `uucp`/`dialout` membership and refresh the login session before retrying.
+4. **Daemon:** only after the first three checks, inspect sessions:
 
    ```bash
    ttypal-daemon status
    ```
 
-3. If exactly one session is active, confirm with the user before using it.
-4. If multiple sessions are active, ask the user which one to use.
-5. If no session is active and the user already gave a board profile, start one:
+Interpret the result explicitly:
 
-   ```bash
-   ttypal-daemon start -b <board> -S <session>
-   ```
+- **Exactly one active session:** confirm with the user before using it unless
+  they already identified that session or board.
+- **Multiple active sessions:** ask which session to use. Do not guess.
+- **No active session, board profile known:** start a named session:
 
-6. If no board profile is known, ask the user. Do not guess.
+  ```bash
+  ttypal-daemon start -b <board> -S <session>
+  ```
 
-Use `-S <session>` for all commands once a session is known. Use `-b <board>`
-only when selecting by profile is unambiguous.
+- **No active session, no board profile known:** ask for the profile. If the
+  user has no saved board profiles, stop automated serial operations and prompt
+  the user to configure one manually:
+
+  ```bash
+  ttypal
+  ```
+
+  The interactive setup asks for a profile name, serial device path, baud rate,
+  and Shell prompt. Do not run through these choices on the user's behalf, and
+  do not guess any value. Ask the user to return after the configuration has
+  been saved; then run `ttypal-daemon start -b <board> -S <session>` and resume
+  the readiness checks.
+- **Start fails or no socket appears:** inspect the daemon log and re-check the
+  configured device, permissions, and whether another process owns the port:
+
+  ```bash
+  tail -n 100 /tmp/ttypal-daemon-<session>.log
+  fuser /dev/ttyUSB0
+  lsof /dev/ttyUSB0
+  ```
+
+  Replace `/dev/ttyUSB0` with the configured device. Report the concrete error;
+  do not claim the daemon is usable until `ttypal-daemon status` shows the
+  session and `ttypal-send -S <session> --probe` can connect.
+
+If the user specified a session (`-S`) or board profile (`-b`), retain it through
+this diagnosis. Use `-S <session>` for all commands once a session is known. Use
+`-b <board>` only when selecting by profile is unambiguous.
 
 ## Preferred Python API
 
