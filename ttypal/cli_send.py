@@ -3,6 +3,7 @@ import argparse
 import sys
 
 from .client import TtypalClient, TtypalClientError
+from .sanitize import sanitize_text
 
 
 def _client_from_args(args):
@@ -33,6 +34,8 @@ def main():
     parser.add_argument("--wait-for", metavar="STRING", help="发送前等待指定字符串出现")
     parser.add_argument("--probe", action="store_true", help="发送回车并返回设备响应（探测设备状态）")
     parser.add_argument("--timeout", "-t", type=float, default=10, help="等待超时秒数 (默认 10)")
+    parser.add_argument("--raw", action="store_true",
+                        help="不转义控制字符（输出仍可能被 daemon 规范化）")
     args = parser.parse_args()
 
     try:
@@ -54,7 +57,7 @@ def main():
             client.send(args.command)
 
         if output is not None:
-            print(output, end="")
+            print(output if args.raw else sanitize_text(output), end="")
     except TtypalClientError as exc:
         print(f"错误: {exc}", file=sys.stderr)
         sys.exit(1)

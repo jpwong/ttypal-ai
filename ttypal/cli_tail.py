@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .config import load_board, list_boards
 from .logger import SESSION_MARKER_PREFIX
+from .sanitize import sanitize_text
 from .session import list_sessions, load_session
 
 
@@ -121,7 +122,7 @@ def tail(log_dir, n):
     return collected[-n:]
 
 
-def follow(filepath):
+def follow(filepath, raw=False):
     with open(filepath, "r", encoding="utf-8", errors="replace") as f:
         f.seek(0, 2)
         try:
@@ -129,7 +130,7 @@ def follow(filepath):
                 line = f.readline()
                 if line:
                     if not line.startswith(SESSION_MARKER_PREFIX):
-                        sys.stdout.write(line)
+                        sys.stdout.write(line if raw else sanitize_text(line))
                         sys.stdout.flush()
                 else:
                     time.sleep(0.1)
@@ -162,6 +163,8 @@ def main():
     parser.add_argument("-f", "--follow", action="store_true", help="持续跟踪输出")
     parser.add_argument("-b", "--board", help="板子配置名称")
     parser.add_argument("-S", "--session", help="Session 名称")
+    parser.add_argument("--raw", action="store_true",
+                        help="不转义控制字符（日志仍按 UTF-8 解码）")
     args = parser.parse_args()
 
     session_name = _resolve_session(session=args.session, board=args.board)
@@ -175,12 +178,12 @@ def main():
 
     lines = tail(log_dir, args.lines)
     for line in lines:
-        sys.stdout.write(line)
+        sys.stdout.write(line if args.raw else sanitize_text(line))
 
     if args.follow:
         logs = sorted(log_dir.glob("*.log"))
         if logs:
-            follow(logs[-1])
+            follow(logs[-1], raw=args.raw)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,8 @@ Serial port debug tool designed for both humans and AI agents.
 
 - Interactive terminal (like minicom, but better)
 - Auto-logging with timestamps and rotation
+- Terminal-safe control-byte escaping (`SO`/`SI` and other C0 bytes shown as
+  `^N`/`^O`; `--raw` disables it)
 - External command injection via Unix socket (for AI/scripts)
 - ZMODEM file transfer over serial
 - Record/replay serial sessions
@@ -39,6 +41,31 @@ ttypal-send --wait "# " "uname -a"
 
 # Read recent serial output
 ttypal-tail -n 50
+```
+
+## Terminal-safe output
+
+Board output and log *display* are rendered through a control-byte filter. A
+stray `SO` (`0x0E`) would otherwise leave the terminal stuck in DEC Special
+Graphics; other unsafe C0 bytes and DEL are shown in caret notation (`^N`,
+`^O`, `^?`, ...). `CR`, `LF`, `TAB`, `BS`, `BEL` and `ESC` (ANSI sequences)
+pass through unchanged.
+
+Log files themselves are not caret-escaped, so `SO`/`SI` remain available for
+debugging. Note that the logger decodes UTF-8 with replacement; use `--record`
+when you need lossless binary capture. `ESC` is passed through by default,
+including DEC charset designations, so this is not a full sandbox for arbitrary
+binary output.
+
+Use `--raw` on `ttypal`, `ttypal-send` or `ttypal-tail` to disable caret
+escaping. `--raw` is not a lossless capture path: `ttypal-send` output may still
+have ANSI sequences/timestamps normalized by the daemon, and `ttypal-tail
+--raw` can feed control bytes to the terminal again. The interactive terminal
+can enable raw mode permanently in the board config (`--no-raw` overrides it):
+
+```toml
+[terminal]
+raw = true
 ```
 
 ## Python API

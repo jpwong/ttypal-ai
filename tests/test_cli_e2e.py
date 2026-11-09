@@ -22,6 +22,15 @@ from ttypal.socket_server import SocketServer
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+_CLI_MODULES = {
+    "ttypal": "ttypal.main",
+    "ttypal-send": "ttypal.cli_send",
+    "ttypal-tail": "ttypal.cli_tail",
+    "ttypal-daemon": "ttypal.cli_headless",
+    "ttypal-xfer": "ttypal.cli_xfer",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -98,10 +107,27 @@ def _send_request(sock_path, req, timeout=15):
     return json.loads(resp_data)
 
 
+def _cli_argv(cmd):
+    """把 console script 名称映射为当前解释器的 -m 调用，确保测试的是工作树。"""
+    program, *args = cmd
+    module = _CLI_MODULES.get(program)
+    if module:
+        return [sys.executable, "-m", module, *args]
+    return cmd
+
+
+def _cli_env():
+    env = os.environ.copy()
+    pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(REPO_ROOT) + (os.pathsep + pythonpath if pythonpath else "")
+    return env
+
+
 def _run_cli(cmd, timeout=15):
     """运行 CLI 命令，返回 (returncode, stdout, stderr)"""
     result = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=timeout,
+        _cli_argv(cmd), capture_output=True, text=True, timeout=timeout,
+        cwd=REPO_ROOT, env=_cli_env(),
     )
     return result.returncode, result.stdout, result.stderr
 
@@ -116,14 +142,17 @@ def _prompt_events(prompt="# "):
     return [{"t": 0.0, "dir": "rx", "hex": prompt.encode().hex()}]
 
 
-def _cmd_events(cmd, output, prompt="# "):
+def _cmd_events(cmd, output, prompt="# ", start=0.0, include_initial_prompt=True):
     """生成命令发送+回显+输出+prompt 的事件序列"""
-    return [
-        {"t": 0.0, "dir": "rx", "hex": prompt.encode().hex()},
-        {"t": 0.3, "dir": "rx", "hex": (cmd + "\r\n").encode().hex()},
-        {"t": 0.5, "dir": "rx", "hex": (output + "\r\n").encode().hex()},
-        {"t": 0.6, "dir": "rx", "hex": prompt.encode().hex()},
-    ]
+    events = []
+    if include_initial_prompt:
+        events.append({"t": start, "dir": "rx", "hex": prompt.encode().hex()})
+    events.extend([
+        {"t": start + 0.3, "dir": "rx", "hex": (cmd + "\r\n").encode().hex()},
+        {"t": start + 0.5, "dir": "rx", "hex": (output + "\r\n").encode().hex()},
+        {"t": start + 0.6, "dir": "rx", "hex": prompt.encode().hex()},
+    ])
+    return events
 
 
 # ===========================================================================
@@ -290,6 +319,28 @@ class TestSendWait:
         finally:
             _stop_server(srv, logger, stop, t)
 
+    def test_wait_escapes_terminal_control_bytes(self, tmp_path):
+        """设备输出包含 SO 等控制字节时，CLI 输出默认转义而不是破坏终端"""
+        cases = [
+            ([], "Status^NUnstaged changes", "\x0e"),
+            (["--raw"], "Status\x0eUnstaged changes", "^N"),
+        ]
+        for extra_args, expected, unexpected in cases:
+            srv, logger, t, stop, sock, backend = _start_server(
+                tmp_path, _cmd_events(
+                    "status", "Status\x0eUnstaged changes",
+                    start=2.0, include_initial_prompt=False))
+            try:
+                rc, out, err = _run_cli(
+                    ["ttypal-send", "--socket", sock, "--wait", "# ",
+                     "--timeout", "3", *extra_args, "status"])
+                assert rc == 0
+                assert expected in out
+                assert unexpected not in out
+                assert "\x0e" in logger.current_log.read_text()
+            finally:
+                _stop_server(srv, logger, stop, t)
+
 
 class TestSendWaitFor:
     """ttypal-send --wait-for 等待字符串"""
@@ -418,6 +469,17 @@ class TestSendTimeout:
 class TestTail:
     """ttypal-tail 日志查看"""
 
+    @pytest.fixture(autouse=True)
+    def _isolated_config(self, tmp_path, monkeypatch):
+        """避免测试读写真实的 ~/.config/ttypal/boards。"""
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        from ttypal import config as config_mod
+        monkeypatch.setattr(
+            config_mod, "CONFIG_DIR", home / ".config" / "ttypal" / "boards"
+        )
+
     def _create_log(self, tmp_path, board, lines):
         """直接写日志文件"""
         log_dir = tmp_path / "logs" / board
@@ -483,6 +545,25 @@ class TestTail:
         finally:
             from ttypal.config import delete_board
             delete_board("tailempty")
+
+    def test_tail_escapes_terminal_control_bytes(self, tmp_path):
+        """日志中遗留的 SO 字节默认转义为 ^N，避免污染终端"""
+        self._create_log(tmp_path, "tailsafe", ["Status\x0eUnstaged changes"])
+        self._create_board_config(tmp_path, "tailsafe")
+
+        try:
+            rc, out, err = _run_cli(["ttypal-tail", "-b", "tailsafe"])
+            assert rc == 0
+            assert "Status^NUnstaged changes" in out
+            assert "\x0e" not in out
+
+            rc, out, err = _run_cli(["ttypal-tail", "-b", "tailsafe", "--raw"])
+            assert rc == 0
+            assert "Status\x0eUnstaged changes" in out
+            assert "^N" not in out
+        finally:
+            from ttypal.config import delete_board
+            delete_board("tailsafe")
 
     def test_tail_no_config(self, tmp_path):
         """板子配置不存在时报错"""
@@ -650,8 +731,9 @@ class TestErrorCases:
             procs = []
             for cmd in ["echo a", "echo b", "echo c"]:
                 p = subprocess.Popen(
-                    ["ttypal-send", "--socket", sock, cmd],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    _cli_argv(["ttypal-send", "--socket", sock, cmd]),
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    cwd=REPO_ROOT, env=_cli_env())
                 procs.append(p)
             for p in procs:
                 p.wait(timeout=5)
@@ -681,6 +763,7 @@ class TestArgParsing:
         assert "--wait-for" in out
         assert "--probe" in out
         assert "--timeout" in out or "-t" in out
+        assert "--raw" in out
 
     def test_tail_help(self, tmp_path):
         """ttypal-tail --help"""
@@ -689,6 +772,13 @@ class TestArgParsing:
         assert "--board" in out or "-b" in out
         assert "--lines" in out or "-n" in out
         assert "--follow" in out or "-f" in out
+        assert "--raw" in out
+
+    def test_ttypal_help(self, tmp_path):
+        """ttypal --help"""
+        rc, out, err = _run_cli(["ttypal", "--help"])
+        assert rc == 0
+        assert "--raw" in out
 
     def test_daemon_help(self, tmp_path):
         """ttypal-daemon --help"""

@@ -6,16 +6,18 @@ import threading
 import signal
 
 from .macro import Macro, FKEY_ESCAPE_MAP
+from .sanitize import sanitize_bytes
 
 
 class Terminal:
     ESCAPE_KEY = 0x14  # Ctrl-T
 
-    def __init__(self, serial_conn, logger, socket_server=None, macro=None):
+    def __init__(self, serial_conn, logger, socket_server=None, macro=None, raw=False):
         self.conn = serial_conn
         self.logger = logger
         self.socket_server = socket_server
         self.macro = macro or Macro()
+        self.raw = raw
         self._running = False
         self._old_termios = None
         self._line_buf = ""
@@ -49,7 +51,8 @@ class Terminal:
             try:
                 data = self.conn.read()
                 if data:
-                    os.write(sys.stdout.fileno(), data)
+                    # Only sanitize what the terminal sees; the log keeps the raw bytes.
+                    os.write(sys.stdout.fileno(), data if self.raw else sanitize_bytes(data))
                     self.logger.write(data)
             except Exception:
                 if self._running:

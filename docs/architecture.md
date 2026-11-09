@@ -22,6 +22,7 @@ ttypal/                     # Python module
 ├── cli_xfer.py             # ttypal-xfer command (ZMODEM file transfer)
 ├── cli_headless.py         # ttypal-daemon command (background daemon)
 ├── macro.py                # F1-F12 macro recording and playback
+├── sanitize.py             # Terminal-safe control-byte escaping (logs stay byte-exact)
 ├── xmodem_transfer.py      # XMODEM transfer (deprecated, kept for reference)
 └── zmodem_transfer.py      # ZMODEM transfer via lrzsz bridge
 
@@ -32,6 +33,8 @@ tests/
 ├── test_recorder.py        # Unit: recording and ring buffer
 ├── test_replay.py          # Unit: replay backend
 ├── test_tail.py            # Unit: tail cross-file, session boundary, daemon detection
+├── test_sanitize.py        # Unit: terminal-safe control-byte escaping
+├── test_terminal.py        # Unit: interactive RX display vs byte-exact logging
 ├── test_macro.py           # Unit: macro load, playback, recording, save
 ├── test_integration.py     # Integration: socket → serial → logger
 ├── test_ai_e2e.py          # E2E: AI sends command, verifies correct response
@@ -150,6 +153,22 @@ Each Logger instance generates a unique `session_id`. Every new log file starts 
 
 ### Logger Timestamps
 Timestamps are optional. Set `timestamp_format=""` in config to disable. When enabled, each line is prefixed with `[timestamp]`. Session markers use a distinct prefix (`## ttypal-session:`) that won't collide with log content regardless of timestamp setting.
+
+### Terminal-Safe Control Bytes
+Serial RX is written to the log without caret escaping, but the display path
+(`ttypal` interactive, `ttypal-send` output, `ttypal-tail`) escapes unsafe C0
+controls and DEL as caret notation (`^N`, `^O`, `^?`, ...). This prevents a stray
+`SO` (`0x0E`, LS1) from shifting the operator's terminal into DEC Special
+Graphics until an `SI` arrives. `BEL`, `BS`, `TAB`, `LF`, `CR` and `ESC` pass
+through unchanged so ANSI SGR/cursor sequences still work; bytes >= 0x80 pass
+through so UTF-8 is intact. Raw C1 bytes are left untouched because they overlap
+UTF-8 continuation bytes, and `ESC` sequences themselves are trusted, including
+DEC charset designations, so `--raw` is still required for full TUI fidelity.
+`--raw` (or `[terminal] raw = true` in the board config, with `--no-raw` as the
+CLI override) disables caret escaping. The control filter lives in
+`sanitize.py`; the Python client API still returns the daemon's normalized
+output. The logger decodes UTF-8 with replacement, so use `--record` when
+lossless binary capture is required.
 
 ### Recording Format
 JSONL, one event per line: `{"t": seconds, "dir": "rx"|"tx", "hex": "hexstring"}`

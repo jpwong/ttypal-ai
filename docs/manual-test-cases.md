@@ -73,6 +73,8 @@
 | T02 | -n 指定行数 | `ttypal-tail -n 50` | exit 0，返回 50 行 |
 | T03 | -f follow 模式 | `ttypal-tail -f`（Ctrl-C 退出） | 持续输出，Ctrl-C 可退出 |
 | T04 | -b 指定板子 | `ttypal-tail -b <board>` | exit 0，返回指定板子日志 |
+| T05 | 日志含 SO 控制字节 | 板子执行 `printf 'Status\016Unstaged changes\n'` 后 `ttypal-tail -b <board> -n 5` | 终端不被 DEC 图形污染，显示 `Status^NUnstaged changes` |
+| T06 | --raw 回退 | `ttypal-tail -b <board> --raw -n 5` | 原始 SO 透传（终端可能被切到 DEC 图形，之后执行 `reset`） |
 
 ## ttypal-daemon 状态管理
 
@@ -105,6 +107,16 @@
 | L04 | 验证登录成功 | 登录后 `ttypal-send --probe` | exit 0，返回 `# ` 或 `$ ` |
 | L05 | wait-for 不应匹配旧密码提示 | 日志里已有旧 `Password:`，设备当前在 `login:`，再执行登录流程 | 0.9.2 起不应把密码发送到 `login:`；若复现则记录为缺陷 |
 
+## 终端控制字节安全
+
+| # | 测试点 | 命令 | 预期结果 |
+|---|--------|------|----------|
+| C01 | 交互模式收到裸 SO | 在 `ttypal` 交互窗口中让板子执行 `printf '\033)0\016Status\n'` | 显示 `Status` 前有可见 `^N`，ASCII 字符正常，终端不被切到 DEC 图形 |
+| C02 | send --wait 输出含 SO | `ttypal-send -S <session> --wait "# " "printf 'Status\016Unstaged changes\n'"` | 显示 `Status^NUnstaged changes`，终端保持正常 |
+| C03 | send --raw 回退 | `ttypal-send -S <session> --wait "# " --raw "printf 'Status\016Unstaged changes\n'"` | 原始 SO 透传（终端可能被切换，测试后执行 `reset`） |
+| C04 | 配置 raw 模式 | 板子配置加入 `[terminal] raw = true` 后启动 `ttypal` | 串口字节原样输出，不转义控制字符；`--no-raw` 可临时覆盖 |
+| C05 | ESC 字符集切换（已知限制） | 板子执行 `printf '\033(0Status\n'` | 默认仍透传 `ESC ( 0`，可能显示 DEC 图形字符；这是已知限制，执行 `reset` 恢复 |
+
 ---
 
 ## 回归测试场景
@@ -127,6 +139,10 @@
 - 跑所有 S, T, D 测试
 - 确保参数解析无回归
 
+### 改动涉及终端显示或控制字节处理
+- 跑 T05, T06, C01-C05
+- 验证默认转义不会破坏 ANSI 颜色、UTF-8 和日常交互，`--raw`/`--no-raw` 仍可回退
+
 ---
 
 ## 新增测试用例记录
@@ -142,6 +158,7 @@
 | v0.9.0 | D05-D06 | 实机回归发现跨用户 stale/unreachable daemon 和 start 假成功诊断不足 |
 | v0.9.0 | L05 | 实机登录发现 `--wait-for` 可匹配旧 `Password:`，导致密码被发送到 `login:` |
 | v0.9.2 | S11a, S14a, S14b, S12a | 香橙派实机回归：空闲控制台写线程被 reader 锁饿死（probe 7s 超时）；密码不回显时前缀 prompt 匹配失败；重启后 `--wait-for` 匹配旧 prompt |
+| v0.9.3 | T05, T06, C01-C05 | issue #1：串口透传裸 SO（0x0E）导致终端卡在 DEC 特殊图形；显示路径默认转义不安全 C0 字节，日志不做 caret 转义 |
 
 ---
 

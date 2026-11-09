@@ -11,6 +11,15 @@ from ttypal.socket_server import SocketServer
 from ttypal.terminal import Terminal
 
 
+def _resolve_raw_output(args, cfg):
+    """CLI override wins; otherwise use [terminal] raw from the board config."""
+    terminal_cfg = cfg.get("terminal")
+    configured = bool(terminal_cfg.get("raw", False)) if isinstance(terminal_cfg, dict) else False
+    if args.raw is None:
+        return configured
+    return bool(args.raw)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="ttypal",
@@ -25,6 +34,8 @@ def main():
     parser.add_argument("--record", metavar="FILE", help="录制串口数据到文件")
     parser.add_argument("--replay", metavar="FILE", help="回放录制文件（替代真实串口）")
     parser.add_argument("--realtime", action="store_true", help="回放时保持原始时序")
+    parser.add_argument("--raw", action=argparse.BooleanOptionalAction, default=None,
+                        help="原样输出串口字节，不转义控制字符（默认会转义 SO/SI 等）")
     args = parser.parse_args()
 
     if args.replay:
@@ -106,7 +117,8 @@ def main():
 
     from ttypal.macro import Macro
     macro = Macro.from_config(cfg)
-    terminal = Terminal(conn, logger, socket_srv, macro)
+    raw_output = _resolve_raw_output(args, cfg)
+    terminal = Terminal(conn, logger, socket_srv, macro, raw=raw_output)
 
     try:
         terminal.start()

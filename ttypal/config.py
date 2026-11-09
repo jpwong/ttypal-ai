@@ -37,6 +37,9 @@ DEFAULT_CONFIG = {
         "ring_size": 100000,
     },
     "macro": {},
+    "terminal": {
+        "raw": False,
+    },
 }
 
 COMMON_BAUDRATES = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]
@@ -146,6 +149,7 @@ def create_board_interactive():
             "path": f"/tmp/ttypal-{name}.sock",
             "prompt": prompt,
         },
+        "terminal": {**DEFAULT_CONFIG["terminal"]},
     }
 
     save_board(name, cfg)

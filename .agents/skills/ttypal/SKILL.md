@@ -229,6 +229,15 @@ ttypal-send -S <session> --wait-for "Password:" --wait "~ # " "password"
 ttypal-tail -S <session> -n 50
 ```
 
+Human-facing output (`ttypal`, `ttypal-send`, `ttypal-tail`) escapes unsafe C0
+control bytes as caret notation, so a stray `SO` appears as `^N` instead of
+leaving the terminal in DEC Special Graphics. This is display-only; log files are
+not caret-escaped, and `TtypalClient` output is not changed by this filter. Use
+`--raw` to disable caret escaping (it does not guarantee byte-exact capture:
+`ttypal-send` output may still be normalized by the daemon). The interactive
+terminal can enable raw mode with `[terminal] raw = true`; `--no-raw` overrides
+it.
+
 ## Prompt Matching
 
 Prefer the most specific prompt that is stable for the target board.

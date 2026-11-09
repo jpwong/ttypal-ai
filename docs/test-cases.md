@@ -53,6 +53,9 @@
 | 用例 | 说明 |
 |------|------|
 | test_wait_marker_in_truncated_long_command_echo | 长命令回显被截断且回显中包含完成标记时，`send_wait` 等待真正单独输出的完成标记后再返回 |
+| test_wait_escapes_terminal_control_bytes | 设备输出含 SO 时 `ttypal-send --wait` 默认显示 `^N`，`--raw` 保留原始控制字节 |
+| test_tail_escapes_terminal_control_bytes | 日志含 SO 时 `ttypal-tail` 默认显示 `^N`，`--raw` 保留原始控制字节 |
+| test_ttypal_help | `ttypal --help` 暴露 `--raw`/`--no-raw` |
 
 ## test_socket_wait.py — send_wait 日志匹配
 
@@ -129,6 +132,40 @@
 | test_read_records_rx_data | 读到的数据交给 recorder 记录 |
 | test_idle_read_does_not_starve_writes | 串口空闲时 reader 不持锁阻塞等待，writer 不会被饿死（回归：probe 在安静控制台上超时） |
 
+## test_sanitize.py — 终端控制字节转义
+
+验证显示路径对 C0 控制字节的处理：不安全字节不会进入终端，日志内容不受该过滤器影响。
+
+| 用例 | 说明 |
+|------|------|
+| test_sanitize_bytes_escapes_so_and_si | 裸 SO/SI 被转义为 `^N`/`^O`，不会进入终端 |
+| test_sanitize_bytes_escapes_every_unsafe_control | 所有不安全的 C0 字节和 DEL 都按 caret 形式转义 |
+| test_sanitize_bytes_keeps_safe_console_controls | BEL/BS/TAB/LF/CR/ESC 原样保留，ANSI 序列可用 |
+| test_sanitize_bytes_keeps_utf8 | UTF-8 多字节序列不受影响 |
+| test_sanitize_bytes_preserves_utf8_across_chunk_splits | 多字节 UTF-8 在任意分块边界拆分后仍不被破坏 |
+| test_sanitize_bytes_escapes_other_c0_and_del | 其他 C0 控制字节和 DEL 使用 caret 形式显示 |
+| test_sanitize_bytes_empty | 空数据直接返回 |
+| test_sanitize_text_escapes_so_and_si | 文本路径（tail/send 输出）同样转义 SO/SI |
+| test_sanitize_text_keeps_ansi_and_unicode | 文本路径保留 ANSI 序列和 Unicode |
+| test_sanitize_text_escapes_other_c0_and_del | 文本路径转义其他 C0 和 DEL |
+
+## test_terminal.py — 交互终端输出
+
+| 用例 | 说明 |
+|------|------|
+| test_reader_sanitizes_terminal_but_logs_raw_bytes | 交互模式终端输出转义 SO，日志仍收到原始字节 |
+| test_reader_raw_mode_forwards_bytes_verbatim | `raw=True` 时终端输出与日志都保持原始字节 |
+
+## test_main.py — raw 模式解析
+
+| 用例 | 说明 |
+|------|------|
+| test_raw_defaults_off_for_old_config | 旧配置没有 `[terminal]` 时默认转义 |
+| test_raw_reads_terminal_config | `[terminal] raw = true` 时启用 raw |
+| test_cli_raw_overrides_false_config | `--raw` 覆盖配置中的 false |
+| test_cli_no_raw_overrides_true_config | `--no-raw` 覆盖配置中的 true |
+| test_raw_ignores_invalid_terminal_section | `[terminal]` 类型异常时安全回退到转义模式 |
+
 ## test_tail.py — 日志读取 (ttypal-tail)
 
 ### Session 标记
@@ -167,6 +204,13 @@
 | test_logger_no_timestamp | timestamp_format="" 时日志不添加时间戳，直接写入原始数据 |
 | test_tail_works_without_timestamp | 无时间戳模式下 tail 正确读取和过滤 session 标记 |
 | test_tail_cross_session_without_timestamp | 无时间戳模式下 session 边界隔离仍然有效 |
+
+### 控制字节转义
+
+| 用例 | 说明 |
+|------|------|
+| test_follow_sanitizes_control_bytes | `-f` 实时跟踪输出时 SO 被转义为 `^N` |
+| test_follow_raw_mode_forwards_control_bytes | `follow(raw=True)` 保留原始控制字节 |
 
 ### Daemon 存活检测
 

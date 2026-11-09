@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 from ttypal.logger import Logger, SESSION_MARKER_PREFIX
-from ttypal.cli_tail import tail, _read_session_id, _is_daemon_alive
+from ttypal.cli_tail import tail, follow, _read_session_id, _is_daemon_alive
 
 
 def test_session_marker_in_new_file(tmp_path):
@@ -177,6 +177,37 @@ def test_tail_cross_session_without_timestamp(tmp_path):
     lines = tail(tmp_path / "testboard", 100)
     assert len(lines) == 1
     assert "new_only" in lines[0]
+
+
+def _run_follow_once(tmp_path, monkeypatch, *, raw=False):
+    log_file = tmp_path / "live.log"
+    log_file.write_text("")
+    sleeps = {"count": 0}
+
+    def fake_sleep(_seconds):
+        if sleeps["count"] == 0:
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write("Status\x0eUnstaged changes\n")
+            sleeps["count"] += 1
+            return
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("ttypal.cli_tail.time.sleep", fake_sleep)
+    follow(log_file, raw=raw)
+
+
+def test_follow_sanitizes_control_bytes(tmp_path, monkeypatch, capsys):
+    """follow 模式实时输出也转义 SO，不污染终端"""
+    _run_follow_once(tmp_path, monkeypatch)
+
+    assert capsys.readouterr().out == "Status^NUnstaged changes\n"
+
+
+def test_follow_raw_mode_forwards_control_bytes(tmp_path, monkeypatch, capsys):
+    """follow --raw 仍保留原始控制字节"""
+    _run_follow_once(tmp_path, monkeypatch, raw=True)
+
+    assert capsys.readouterr().out == "Status\x0eUnstaged changes\n"
 
 
 def test_daemon_alive_no_pid_file():
