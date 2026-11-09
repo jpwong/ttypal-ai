@@ -22,6 +22,7 @@ class SerialConnection:
         self._recorder = recorder
         self._lock_fd = None
         self._paused = threading.Event()
+        self._idle_poll_interval = 0.01
 
     @staticmethod
     def _parse_parity(p):
@@ -96,12 +97,23 @@ class SerialConnection:
         with self._lock:
             waiting = self._serial.in_waiting
             if waiting:
-                data = self._serial.read(size or waiting)
+                if size is None or size <= 0:
+                    count = waiting
+                else:
+                    count = min(size, waiting)
+                data = self._serial.read(count)
             else:
-                data = self._serial.read(1)
-        if data and self._recorder:
-            self._recorder.record_rx(data)
-        return data
+                data = b""
+        if data:
+            if self._recorder:
+                self._recorder.record_rx(data)
+            return data
+        # Idle: wait outside the lock. Holding the lock across a blocking
+        # read starves writers (the reader can reacquire it before a waiting
+        # thread gets scheduled), so ttypal-send could hang for seconds on a
+        # quiet console.
+        time.sleep(self._idle_poll_interval)
+        return b""
 
     def write(self, data):
         if isinstance(data, str):

@@ -16,6 +16,19 @@ from ttypal.socket_server import SocketServer
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+def _write_recording(path, events):
+    """Write RX-only replay events as (time, text) pairs."""
+    lines = []
+    for t, text in events:
+        lines.append(json.dumps({
+            "t": t,
+            "dir": "rx",
+            "hex": text.encode().hex(),
+        }))
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
 def _start_reader(backend, logger, stop_event):
     """模拟 terminal 的 reader 线程：从串口读数据写入 logger"""
     while not stop_event.is_set():
@@ -47,7 +60,11 @@ def _send_request(sock_path, req):
 
 def test_ai_send_echo_gets_correct_output(tmp_path):
     """AI 发送 'echo hello'，验证返回内容包含 'hello'"""
-    backend = ReplayBackend(str(FIXTURES / "basic_commands.rec"), realtime=True)
+    rec = _write_recording(tmp_path / "echo.rec", [
+        (0.0, "\r\nroot@rockchip:/# "),
+        (1.0, "echo hello\r\nhello\r\nroot@rockchip:/# "),
+    ])
+    backend = ReplayBackend(str(rec), realtime=True)
     backend.open()
 
     logger = Logger("ai_test", directory=str(tmp_path / "logs"))
@@ -59,8 +76,8 @@ def test_ai_send_echo_gets_correct_output(tmp_path):
     reader = threading.Thread(target=_start_reader, args=(backend, logger, stop))
     reader.start()
 
-    # 等录制前几个 RX 事件播放完（prompt 出现）
-    time.sleep(0.3)
+    # 命令回显/输出在 1s 后才回放，确保位于 send_wait 的 mark 之后
+    time.sleep(0.1)
 
     resp = _send_request(sock_path, {
         "cmd": "send_wait",
@@ -80,7 +97,12 @@ def test_ai_send_echo_gets_correct_output(tmp_path):
 
 def test_ai_send_uname_gets_kernel_info(tmp_path):
     """AI 发送 'uname -a'，验证返回内容包含 Linux 内核信息"""
-    backend = ReplayBackend(str(FIXTURES / "basic_commands.rec"), realtime=True)
+    rec = _write_recording(tmp_path / "uname.rec", [
+        (0.0, "\r\nroot@rockchip:/# "),
+        (1.0, "uname -a\r\nLinux rockchip 5.10.160 aarch64 GNU/Linux\r\n"
+              "root@rockchip:/# "),
+    ])
+    backend = ReplayBackend(str(rec), realtime=True)
     backend.open()
 
     logger = Logger("ai_test2", directory=str(tmp_path / "logs"))
@@ -92,8 +114,8 @@ def test_ai_send_uname_gets_kernel_info(tmp_path):
     reader = threading.Thread(target=_start_reader, args=(backend, logger, stop))
     reader.start()
 
-    # 等所有 RX 播放完
-    time.sleep(0.5)
+    # 命令回显/输出在 1s 后才回放
+    time.sleep(0.1)
 
     resp = _send_request(sock_path, {
         "cmd": "send_wait",

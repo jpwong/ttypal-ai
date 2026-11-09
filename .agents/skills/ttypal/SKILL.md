@@ -271,10 +271,13 @@ Interpret the response:
 Do not blindly send credentials. Sending `root` at a shell prompt can execute it
 as a command and confuse the session.
 
-Known limitation: `--wait-for` searches recent log content and can match stale
-text such as an old `Password:`. If the login state is ambiguous, use `--probe`
-and recent logs to confirm the current prompt. For fragile login flows, send one
-step at a time and verify with `ttypal-tail`.
+Known limitation: `--wait-for` searches recent log content. A match from before
+the request is only accepted while it is still the end of the log, so old
+prompts followed by new output are ignored. It can still match the previous
+console state if the request races ahead of reboot output; wait for a reboot or
+shutdown marker before starting a login sequence. If the login state is
+ambiguous, use `--probe` and recent logs to confirm the current prompt. For
+fragile login flows, send one step at a time and verify with `ttypal-tail`.
 
 ## Error Handling
 

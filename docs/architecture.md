@@ -88,6 +88,27 @@ not localized `message` text.
 ### Serial Port Pause/Resume
 `serial_conn.py` supports `pause()` / `resume()` to temporarily stop the reader thread from consuming serial data. Used by ZMODEM transfer to exclusively access the serial port during file transfer.
 
+The reader never holds the serial lock while waiting for data. It reads only
+bytes already available (`in_waiting`) under the lock, then sleeps for a short
+idle interval outside the lock. Holding the lock across a blocking read caused
+the reader to reacquire it immediately after each timeout; on an idle console
+the waiting writer (e.g. `ttypal-send --probe`) could be starved for tens of
+seconds even though the serial port was healthy.
+
+### Wait-for String Matching
+`socket_server.py` `_wait_for_string()` scans from 4KB before the request to
+the current end of the log for `--wait-for` / `expect_send`. It records the byte
+offset of the request so that strings split across the request boundary are
+still matched once they complete. A match that predates the request is only
+accepted when it is still at the end of the log; CSI/OSC escape sequences,
+numeric logger timestamps with a time component (`[261109 17:50:30.374] `) and
+session markers are ignored when deciding whether the tail is visually empty.
+If new output has arrived after the old match, the daemon keeps waiting. This
+prevents an immediately preceding `login:` prompt from being matched right after
+a reboot command. If the log rotates while waiting, the old file is drained once
+before switching to the new file; data already written to the new file is
+included in the end-of-log check.
+
 ### send_wait Prompt Matching
 `socket_server.py` `_wait_for_prompt_after_cmd()` logic:
 1. Search the log file for the command echo text, or a sufficiently long suffix of it when the serial console dropped/redrew the beginning of a long echoed line
@@ -99,14 +120,23 @@ The helper returns whether the prompt was matched. Prompt timeout is reported as
 
 The starting mark passed to this logic is a byte offset from the log file size.
 Log scanning slices raw bytes at that mark before UTF-8 decoding so non-ASCII
-text already present in the log cannot shift the search window.
+text already present in the log cannot shift the search window. Prompt matching
+is only accepted after new console output is observed (or after the log rotates);
+a prompt that predates the command is not treated as completion, even if no new
+log data arrives for a while. This matters for slow authentication. ANSI escape
+sequences and numeric logger timestamps are removed before matching, so colored
+or prefixed prompts such as `~ # ` and `[root@board] # ` are supported.
 
 When no usable full/suffix command echo can be matched, fallback prompt matching
-only accepts a prompt at the start of a new line. This prevents completion
-markers embedded in the echoed command text, such as `printf '\n__DONE__\n'`,
-from ending the wait before the command output is logged.
+requires the prompt to end its line. This prevents completion markers embedded in
+the echoed command text, such as `printf '\n__DONE__\n'`, from ending the wait
+before the command output is logged, while still accepting prefixed prompts
+after a non-echoed command (for example a password).
 
-**Known issue:** If command output starts a line with the prompt string (e.g. `#`), it may still truncate early. Use full prompt (e.g. `root@rockchip:/`) or a unique completion marker to mitigate.
+**Known issue:** If command output starts a line with the prompt string (e.g.
+`#`), or if a line of output ends with the prompt string, it may still truncate
+early. Use a full prompt (e.g. `root@rockchip:/`) or a unique completion marker
+to mitigate.
 
 ### File Transfer (ZMODEM)
 `zmodem_transfer.py` bridges host-side `lrzsz` (`sz`/`rz`) with the serial port for ZMODEM file transfer. The host needs `lrzsz` installed, the device needs `rz`/`sz` (BusyBox or lrzsz).
@@ -147,8 +177,8 @@ JSONL, one event per line: `{"t": seconds, "dir": "rx"|"tx", "hex": "hexstring"}
   after startup due to serial lock/permission issues. Startup should wait for
   initialization and socket readiness, then return non-zero with the real
   failure reason when the daemon cannot serve requests.
-- `expect_send` / `--wait-for` currently searches recent log content and can
-  match stale prompts such as an old `Password:`. Login flows can then send the
-  next credential to the wrong prompt. It should prefer a fresh log mark or a
-  session-aware wait window for interactive login sequences.
+- `expect_send` / `--wait-for` only accepts a stale (pre-request) match while it
+  remains at the end of the log. It can still match the last prompt of the
+  previous console state if the request races ahead of the reboot output; use a
+  fresh mark or wait for a reboot marker before login sequences.
 - **已知问题 (RK平台 FIQ Debugger):** ZMODEM 传输中文件数据或协议帧均可能触发 FIQ debugger，目前无有效软件规避方法。文件越大触发概率越高，<100KB 基本可靠，大文件请用网络传输或关闭 FIQ debugger (`no_fiq_debugger`)

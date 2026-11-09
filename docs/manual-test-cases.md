@@ -33,7 +33,9 @@
 |---|--------|------|----------|
 | S10 | --wait-for 等待后发送 | `ttypal-send --wait-for "login:" "root"` | exit 0，等待 login: 出现后发送 root |
 | S11 | --wait-for + --wait 组合 | `ttypal-send --wait-for "Password:" --wait "# " "pwd123"` | exit 0，完整登录流程 |
+| S11a | 非回显命令 + 前缀 prompt | 板子 prompt 为 `~ # ` 时 `ttypal-send --wait-for "Password:" --wait "~ # " "<密码>"` | exit 0，密码不回显也能在 `~ # ` 处结束等待（回归：曾要求 prompt 在行首而超时） |
 | S12 | --wait-for 超时 | `ttypal-send --wait-for "NEVER_APPEAR" --timeout 3 "cmd"` | exit 1，报错包含"等待" |
+| S12a | 重启后不匹配旧 prompt | 在 shell 发送 `reboot` 后立刻执行 `ttypal-send --wait-for "login:" --timeout 60 "root"` | root 只在新启动的 login: 出现后发送，不会因重启前的旧 login: 提前发送 |
 
 ## ttypal-send --probe 探测状态
 
@@ -41,6 +43,8 @@
 |---|--------|------|----------|
 | S13 | 已登录状态 | `ttypal-send --probe` | exit 0，返回 prompt（`# ` 或 `$ `） |
 | S14 | 需要登录状态 | 板子未登录时 `ttypal-send --probe` | exit 0，返回 `login:` 或 `Password:` |
+| S14a | 空闲控制台写延迟 | 登录后静置 60 秒，执行 `time ttypal-send --probe`，再连续执行 20 次 `ttypal-send "echo tick"` | probe 约 2 秒返回；单条 fire-and-forget < 0.5 秒，不出现 socket I/O 超时（回归：reader 持锁阻塞导致写线程饿死） |
+| S14b | 空闲控制台下 --wait | 静置 60 秒后 `ttypal-send --wait "~ # " "uname -m"` | 立即返回架构信息，exit 0 |
 
 ## ttypal-send 多板子
 
@@ -99,7 +103,7 @@
 | L02 | 完整登录（需要 login:） | `ttypal-send --wait-for "login:" --wait "Password:" "root"` 后 `ttypal-send --wait-for "Password:" --wait "# " "pwd"` | exit 0，登录成功 |
 | L03 | 仅需密码（已有 login:） | `ttypal-send --wait-for "Password:" --wait "# " "pwd"` | exit 0，登录成功 |
 | L04 | 验证登录成功 | 登录后 `ttypal-send --probe` | exit 0，返回 `# ` 或 `$ ` |
-| L05 | wait-for 不应匹配旧密码提示 | 日志里已有旧 `Password:`，设备当前在 `login:`，再执行登录流程 | 不应把密码发送到 `login:`；若当前版本复现该问题，记录为已知缺陷 |
+| L05 | wait-for 不应匹配旧密码提示 | 日志里已有旧 `Password:`，设备当前在 `login:`，再执行登录流程 | 0.9.2 起不应把密码发送到 `login:`；若复现则记录为缺陷 |
 
 ---
 
@@ -137,6 +141,7 @@
 | v0.4.0 | S17, SS01-SS06 | 引入 Session 概念，-S/--session 运行时身份 |
 | v0.9.0 | D05-D06 | 实机回归发现跨用户 stale/unreachable daemon 和 start 假成功诊断不足 |
 | v0.9.0 | L05 | 实机登录发现 `--wait-for` 可匹配旧 `Password:`，导致密码被发送到 `login:` |
+| v0.9.2 | S11a, S14a, S14b, S12a | 香橙派实机回归：空闲控制台写线程被 reader 锁饿死（probe 7s 超时）；密码不回显时前缀 prompt 匹配失败；重启后 `--wait-for` 匹配旧 prompt |
 
 ---
 

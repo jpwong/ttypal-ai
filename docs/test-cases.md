@@ -6,8 +6,8 @@
 
 | 用例 | 说明 |
 |------|------|
-| test_ai_send_echo_gets_correct_output | 发送 echo 命令并等待 prompt，验证返回的输出内容正确 |
-| test_ai_send_uname_gets_kernel_info | 发送 uname -a 命令，验证返回包含内核信息 |
+| test_ai_send_echo_gets_correct_output | 回放数据在 mark 之后到达时，发送 echo 命令并等待 prompt，验证返回输出正确 |
+| test_ai_send_uname_gets_kernel_info | 回放数据在 mark 之后到达时，发送 uname -a 命令，验证返回包含内核信息 |
 | test_ai_send_simple_no_wait | 仅发送命令不等待响应 (fire-and-forget)，验证不阻塞 |
 | test_ai_send_wait_timeout | 发送命令等待一个不存在的 prompt，验证返回结构化超时错误并保留已收集内容 |
 
@@ -61,6 +61,24 @@
 | test_wait_for_prompt_after_cmd_returns_command_output | 使用发送前日志偏移等待 prompt 时，返回命令回显之后的输出 |
 | test_wait_for_prompt_after_cmd_times_out_instead_of_empty_success | mark 后只有命令回显、没有 prompt 时，返回未匹配结果而不是误判成功 |
 | test_wait_for_prompt_after_cmd_uses_byte_mark_with_unicode_prefix | mark 前存在 UTF-8 多字节字符时，按字节偏移切片并正确返回命令输出 |
+| test_wait_for_prompt_after_unseen_echo_accepts_prefixed_prompt | 命令不回显（如输入密码）时，仍能识别 `~ # ` 这类带前缀的 prompt |
+| test_wait_for_prompt_after_unseen_echo_accepts_ansi_colored_prompt | 命令不回显时，ANSI 彩色 prompt 也能识别 |
+| test_wait_for_prompt_after_unseen_echo_accepts_bracket_prompt | 命令不回显时，`[root@board] # ` 这类方括号 prompt 不被误剥离 |
+| test_wait_for_prompt_after_cmd_accepts_late_prompt | 慢认证场景等待并返回命令后的新 prompt，而不是旧 prompt |
+| test_wait_for_prompt_after_unseen_echo_ignores_prompt_inside_echo | 命令不回显时，命令行内部的 prompt 文本不会被误判为完成 |
+| test_wait_for_prompt_after_cmd_ignores_old_prompt_without_new_output | mark 后长时间无新输出（慢认证）时，不会用 mark 前的旧 prompt 提前完成 |
+| test_wait_for_string_accepts_prompt_at_end | 日志末尾已有的 prompt 可立即匹配 |
+| test_wait_for_string_accepts_ansi_colored_prompt | ANSI 彩色 prompt 位于日志末尾时可匹配 |
+| test_to_plain_preserves_text_between_osc_sequences | 多个 OSC 8 超链接序列之间的正常文本不会被 ANSI 正则吞掉 |
+| test_wait_for_string_does_not_strip_untimestamped_bracket_line | 无时间戳日志中的 `[  OK  ]` 行不会被当成时间戳前缀剥掉 |
+| test_wait_for_string_does_not_strip_numeric_bracket_line | `[1]` 这类 job control 行不会被误认为时间戳 |
+| test_wait_for_string_accepts_prompt_followed_by_timestamped_blank | prompt 后只有带时间戳的空行时仍视为日志末尾 |
+| test_wait_for_string_with_real_logger_timestamps | 使用真实 Logger 时间戳格式时末尾判断正确 |
+| test_wait_for_string_ignores_stale_prompt_followed_by_output | 回看窗口中的旧 prompt 后面出现新输出时不再匹配 |
+| test_wait_for_string_target_spanning_request_boundary | 目标字符串跨越请求边界、在请求后补全时仍能匹配 |
+| test_wait_for_string_matches_new_output | 请求之后新写入的字符串可以匹配 |
+| test_wait_for_string_drains_old_file_on_rotation | 日志轮转前刚写入旧文件的末尾内容不会丢失 |
+| test_wait_for_string_rejects_old_tail_when_new_file_has_output | 轮转后新文件已有输出时，旧文件末尾的旧目标不再算匹配 |
 
 ## test_logger.py — 日志记录器
 
@@ -105,6 +123,11 @@
 |------|------|
 | test_lock_file_readonly_still_acquires_flock | 其他用户遗留的只读 lock 文件仍可通过只读 fd 获取 flock |
 | test_lock_file_contention_raises_runtime_error | 同一串口已有实例持锁时，第二个实例启动失败 |
+| test_read_returns_available_data | 有数据时一次读出全部可用字节 |
+| test_read_honours_size_limit | 传入 size 时最多返回 size 字节，剩余数据保留到下次读取 |
+| test_read_zero_returns_all_available | `read(0)` 与旧行为一致，读取全部可用字节 |
+| test_read_records_rx_data | 读到的数据交给 recorder 记录 |
+| test_idle_read_does_not_starve_writes | 串口空闲时 reader 不持锁阻塞等待，writer 不会被饿死（回归：probe 在安静控制台上超时） |
 
 ## test_tail.py — 日志读取 (ttypal-tail)
 
