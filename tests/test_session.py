@@ -1,5 +1,6 @@
 import os
 import json
+import socket
 from pathlib import Path
 
 import pytest
@@ -7,7 +8,7 @@ import pytest
 from ttypal.session import (
     session_file, save_session, load_session, remove_session,
     list_sessions, find_socket, resolve_socket, is_session_alive, SESSION_DIR,
-    BoardSessionNotFound, MultipleSessionsFound, SessionNotFound,
+    is_socket_alive, BoardSessionNotFound, MultipleSessionsFound, SessionNotFound,
 )
 
 
@@ -99,7 +100,41 @@ def test_session_alive_permission_denied(session_dir, monkeypatch):
     assert is_session_alive("otheruser") is True
 
 
+def _listening_socket(path):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.bind(str(path))
+    s.listen(1)
+    return s
+
+
+def _stale_socket_file(path):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.bind(str(path))
+    s.close()
+    return path
+
+
+def test_is_socket_alive_detects_server(tmp_path):
+    path = tmp_path / "live.sock"
+    server = _listening_socket(path)
+    try:
+        assert is_socket_alive(path) is True
+    finally:
+        server.close()
+
+
+def test_is_socket_alive_rejects_stale_file(tmp_path):
+    path = _stale_socket_file(tmp_path / "stale.sock")
+    assert path.exists()
+    assert is_socket_alive(path) is False
+
+
+def test_is_socket_alive_missing_path(tmp_path):
+    assert is_socket_alive(tmp_path / "missing.sock") is False
+
+
 class TestFindSocket:
+
     def test_by_session_name(self, session_dir):
         save_session("left", {"profile": "rk3588", "socket": "/tmp/ttypal-left.sock", "pid": os.getpid()})
         assert find_socket(session="left") == "/tmp/ttypal-left.sock"
@@ -163,3 +198,26 @@ class TestResolveSocket:
     def test_auto_detect_single(self, session_dir):
         save_session("only", {"profile": "rk3588", "socket": "/tmp/ttypal-only.sock", "pid": os.getpid()})
         assert resolve_socket() == "/tmp/ttypal-only.sock"
+
+    def test_session_fallback_ignores_stale_socket(self, session_dir):
+        _stale_socket_file(session_dir / "ttypal-left.sock")
+        with pytest.raises(SessionNotFound):
+            resolve_socket(session="left")
+
+    def test_session_fallback_accepts_live_socket(self, session_dir):
+        server = _listening_socket(session_dir / "ttypal-left.sock")
+        try:
+            assert resolve_socket(session="left") == str(session_dir / "ttypal-left.sock")
+        finally:
+            server.close()
+
+    def test_board_fallback_ignores_stale_socket(self, session_dir):
+        _stale_socket_file(session_dir / "ttypal-rk3588.sock")
+        with pytest.raises(BoardSessionNotFound):
+            resolve_socket(board="rk3588")
+
+    def test_auto_detect_ignores_stale_socket(self, session_dir):
+        _stale_socket_file(session_dir / "ttypal-old.sock")
+        with pytest.raises(SessionNotFound):
+            resolve_socket()
+

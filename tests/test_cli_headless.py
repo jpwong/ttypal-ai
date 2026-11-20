@@ -119,3 +119,49 @@ def test_status_session_ignores_stale_metadata(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "未运行" in out
     assert "运行中" not in out
+
+
+def test_last_log_line_returns_last_non_empty(tmp_path):
+    log = tmp_path / "daemon.log"
+    log.write_text("banner\n\n  Traceback (most recent call last):\n"
+                   "RuntimeError: 串口被占用\n\n", encoding="utf-8")
+    assert cli_headless._last_log_line(log) == "RuntimeError: 串口被占用"
+
+
+def test_last_log_line_missing_file(tmp_path):
+    assert cli_headless._last_log_line(tmp_path / "missing.log") is None
+
+
+def test_start_reports_dead_child_with_reason(tmp_path, monkeypatch, capsys):
+    """A child that dies during startup must produce a non-zero exit and the reason."""
+    monkeypatch.setattr(cli_headless, "PID_DIR", tmp_path)
+    monkeypatch.setattr(cli_headless.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(cli_headless, "_sock_file", lambda name: tmp_path / f"ttypal-{name}.sock")
+    monkeypatch.setattr(cli_headless, "_is_pid_exited", lambda pid: True)
+    monkeypatch.setattr(cli_headless, "_last_log_line", lambda path: "RuntimeError: 串口被占用")
+
+    cfg = {
+        "serial": {"port": "/dev/ttyUSB1", "baudrate": 1500000},
+        "socket": {"prompt": "# "},
+    }
+    monkeypatch.setattr("ttypal.config.load_board", lambda name: cfg)
+    monkeypatch.setattr("ttypal.session.is_socket_alive", lambda path: False)
+    monkeypatch.setattr(os, "fork", lambda: 12345)
+
+    args = type("Args", (), {
+        "board": "unittest-dead-child",
+        "session": "unittest-dead-child",
+        "port": None,
+        "baudrate": None,
+    })()
+
+    try:
+        cli_headless.cmd_start(args)
+    except SystemExit as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("cmd_start should exit non-zero")
+
+    out = capsys.readouterr().out
+    assert "启动失败" in out
+    assert "串口被占用" in out

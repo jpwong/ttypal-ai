@@ -85,7 +85,7 @@
 | D03 | status 未运行 | `ttypal-daemon stop` 后 `ttypal-daemon status` | exit 0，报告未运行 |
 | D04 | start 启动 | `ttypal-daemon start -b <board>` | exit 0，启动成功 |
 | D05 | 跨用户不可达 session | 存在其他用户启动的 session，socket 连接失败时运行 `ttypal-daemon status` / `ttypal-send -S <session> --probe` | status 应能暴露 session 不可达、owner/PID/socket 信息；send 返回明确连接失败 |
-| D06 | start 初始化失败 | 串口被其他进程/用户占用时运行 `ttypal-daemon start -b <board> -S <name>` | 应返回非 0，并打印串口锁/权限/初始化失败原因，而不是只打印“启动中” |
+| D06 | start 初始化失败 | 串口被其他进程/用户占用时运行 `ttypal-daemon start -b <board> -S <name>` | 应返回非 0，并打印串口锁/权限/初始化失败原因（来自 daemon 日志最后一行），而不是只打印“启动中”；不留下 session/socket/pid 文件 |
 
 ## 异常和边界情况
 
@@ -96,6 +96,10 @@
 | E03 | 多个实例未指定 -b | 启动两个 daemon 后 `ttypal-send "ls"` | exit 1，列出可用板子 |
 | E04 | 输出包含 prompt 字符串 | `ttypal-send --wait "root@board:/# " "echo '#test'"` | exit 0，正确匹配，返回 #test |
 | E05 | 后台输出穿插 | 板子有后台输出时 `ttypal-send --wait "# " "ls"` | exit 0，正确返回命令输出 |
+| E06 | 串口被残留实例占用 | 另一 ttypal 实例正在运行（同一串口）时，新终端运行 `ttypal -b <board>` | exit 1，报错包含占用者 PID 和 `kill <pid>` 提示；原实例的 `/tmp/ttypal-<session>.session` 不被删除，`ttypal-send -b <board>` 仍可用 |
+| E07 | 同名 session 冲突 | 实例 A 运行中，运行 `ttypal -b <board> -p <另一个串口>`（不加 `-S`） | exit 1，提示 session 已被占用（PID/端口），A 的 socket 不被抢占，原 socket 仍可连接 |
+| E08 | 启动失败不留垃圾 | 用不存在的串口运行 `ttypal -b <board> -p /dev/ttyUSB99` | exit 1；`~/ttypal-logs/<board>/` 不新增空日志文件，不写 session 元数据 |
+| E09 | 残留 socket 不阻塞 | 实例被 `kill -9` 后留下 `/tmp/ttypal-<session>.sock` | 再次启动成功并覆盖 socket；`ttypal-send -S <session>` 在重启前报"未运行"而不是连接错误 |
 
 ## 登录流程测试
 

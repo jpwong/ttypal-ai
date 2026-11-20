@@ -37,6 +37,9 @@ class FakeSerial:
         self.written += data
         return len(data)
 
+    def close(self):
+        self.is_open = False
+
 
 def _fake_conn(fake):
     conn = SerialConnection("/dev/ttypal-fake-test")
@@ -67,13 +70,71 @@ def test_lock_file_contention_raises_runtime_error():
 
     try:
         first._acquire_lock()
-        with pytest.raises(RuntimeError, match="已被其他 ttypal 实例占用"):
+        with pytest.raises(RuntimeError, match="已被其他 ttypal 实例占用") as excinfo:
             second._acquire_lock()
+        assert f"PID {os.getpid()}" in str(excinfo.value)
+        assert f"kill {os.getpid()}" in str(excinfo.value)
     finally:
         second._release_lock()
         first._release_lock()
         try:
             os.unlink(lock_file)
+        except FileNotFoundError:
+            pass
+
+
+def test_open_failure_releases_lock(monkeypatch):
+    """A failed open must not keep the flock, otherwise the port is stuck."""
+    lock_file = "/tmp/ttypal-ttypal-openfail-test.lock"
+
+    def explode(*args, **kwargs):
+        raise OSError(16, "Device or resource busy")
+
+    import ttypal.serial_conn as serial_mod
+    monkeypatch.setattr(serial_mod.serial, "Serial", explode)
+
+    conn = SerialConnection("/dev/ttypal-openfail-test")
+    try:
+        with pytest.raises(OSError):
+            conn.open()
+        assert conn._lock_fd is None
+
+        # The lock is free again: another instance can take it.
+        other = SerialConnection("/dev/ttypal-openfail-test")
+        other._acquire_lock()
+        other._release_lock()
+    finally:
+        conn.close()
+        try:
+            os.unlink(lock_file)
+        except FileNotFoundError:
+            pass
+
+
+def test_open_is_idempotent(monkeypatch):
+    """Terminal.start() re-opens the connection; it must not grab a second fd."""
+    import ttypal.serial_conn as serial_mod
+
+    calls = []
+
+    class CountingSerial(FakeSerial):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            calls.append(kwargs)
+            self.dtr = False
+            self.rts = False
+
+    monkeypatch.setattr(serial_mod.serial, "Serial", CountingSerial)
+
+    conn = SerialConnection("/dev/ttypal-idempotent-test")
+    conn.open()
+    conn.open()
+    try:
+        assert len(calls) == 1
+    finally:
+        conn.close()
+        try:
+            os.unlink("/tmp/ttypal-ttypal-idempotent-test.lock")
         except FileNotFoundError:
             pass
 

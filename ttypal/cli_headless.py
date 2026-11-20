@@ -88,9 +88,21 @@ def _wait_for_pid_exit(pid, timeout=STOP_TIMEOUT):
     return _is_pid_exited(pid)
 
 
+def _last_log_line(path):
+    """Return the last non-empty line of a daemon log (usually the error)."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        line = line.strip()
+        if line:
+            return line
+    return None
+
+
 def cmd_start(args):
     from ttypal.config import load_board, list_boards
-    from ttypal.session import save_session
 
     board = args.board
     if not board:
@@ -111,6 +123,19 @@ def cmd_start(args):
     if _read_pid(session_name):
         print(f"ttypal-daemon ({session_name}) 已在运行")
         return
+
+    sock_path = f"/tmp/ttypal-{session_name}.sock"
+    from .session import is_socket_alive
+    if is_socket_alive(sock_path):
+        print(f"错误: 会话 '{session_name}' 已被另一个 ttypal 实例使用 (socket: {sock_path})")
+        print("  提示: 用 -S 指定不同的 session 名称，或先结束该实例")
+        sys.exit(1)
+    # A dead instance may leave its socket behind; remove it so the parent's
+    # readiness check cannot mistake it for the new daemon.
+    try:
+        os.unlink(sock_path)
+    except OSError:
+        pass
 
     cfg = load_board(board)
     if cfg is None:
@@ -133,12 +158,14 @@ def cmd_start(args):
                 print(f"  socket: {_sock_file(session_name)}")
                 return
         # check if child is still alive
-        try:
-            os.kill(pid, 0)
-            print(f"ttypal-daemon ({session_name}) 启动中 [PID {pid}]")
-        except ProcessLookupError:
-            print(f"启动失败，查看日志: /tmp/ttypal-daemon-{session_name}.log")
+        if _is_pid_exited(pid):
+            log_path = f"/tmp/ttypal-daemon-{session_name}.log"
+            print(f"启动失败，查看日志: {log_path}")
+            reason = _last_log_line(log_path)
+            if reason:
+                print(f"  原因: {reason}")
             sys.exit(1)
+        print(f"ttypal-daemon ({session_name}) 启动中 [PID {pid}]")
         return
 
     # child — daemonize
@@ -152,40 +179,25 @@ def cmd_start(args):
 
     _pid_file(session_name).write_text(str(os.getpid()))
 
-    # Save session metadata
-    from datetime import datetime
-    ser_cfg = cfg["serial"]
     sock_cfg = cfg.get("socket", {})
     # Session name determines runtime socket/pid/log paths
-    sock_path = f"/tmp/ttypal-{session_name}.sock"
     prompt = sock_cfg.get("prompt", "# ")
 
-    session_info = {
-        "profile": board,
-        "port": ser_cfg["port"],
-        "baudrate": ser_cfg["baudrate"],
-        "socket": sock_path,
-        "pid": os.getpid(),
-        "started": datetime.now().isoformat(),
-    }
-    save_session(session_name, session_info)
-
     try:
-        _run_daemon(session_name, cfg)
+        _run_daemon(session_name, cfg, profile=board, prompt=prompt)
     finally:
         _pid_file(session_name).unlink(missing_ok=True)
         from .session import remove_session
         remove_session(session_name, pid=os.getpid())
 
 
-def _run_daemon(session_name, cfg):
+def _run_daemon(session_name, cfg, profile=None, prompt="# "):
     from ttypal.serial_conn import SerialConnection
     from ttypal.logger import Logger
     from ttypal.socket_server import SocketServer
 
     ser_cfg = cfg["serial"]
     log_cfg = cfg.get("log", {})
-    sock_cfg = cfg.get("socket", {})
 
     conn = SerialConnection(
         port=ser_cfg["port"],
@@ -198,17 +210,29 @@ def _run_daemon(session_name, cfg):
         rts=ser_cfg.get("rts", False),
     )
 
+    sock_path = f"/tmp/ttypal-{session_name}.sock"
+
+    # Open first: a failed start must not create a log file or overwrite the
+    # session metadata of an instance that is already running.
+    conn.open()
+
+    from datetime import datetime
+    from .session import save_session
+    save_session(session_name, {
+        "profile": profile or session_name,
+        "port": ser_cfg["port"],
+        "baudrate": ser_cfg["baudrate"],
+        "socket": sock_path,
+        "pid": os.getpid(),
+        "started": datetime.now().isoformat(),
+    })
+
     logger = Logger(
         board_name=session_name,
         directory=log_cfg.get("directory", "~/ttypal-logs"),
         rotate_size_kb=log_cfg.get("rotate_size_kb", 10240),
         timestamp_format=log_cfg.get("timestamp_format", "%y%m%d %H:%M:%S.%f"),
     )
-
-    sock_path = f"/tmp/ttypal-{session_name}.sock"
-    prompt = sock_cfg.get("prompt", "# ")
-
-    conn.open()
 
     srv = SocketServer(conn, logger, sock_path, prompt)
     srv.start()

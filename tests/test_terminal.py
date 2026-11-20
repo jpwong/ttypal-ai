@@ -62,3 +62,33 @@ def test_reader_raw_mode_forwards_bytes_verbatim(monkeypatch):
 
     assert writes == [payload]
     assert logged == [payload]
+
+
+def test_writer_exits_when_stdin_reaches_eof(monkeypatch):
+    """A closed stdin must end the session instead of spinning and holding the port."""
+    import os
+    import threading
+
+    read_fd, write_fd = os.pipe()
+    os.close(write_fd)
+
+    class _FakeStdin:
+        def fileno(self):
+            return read_fd
+
+    monkeypatch.setattr(terminal_mod.sys, "stdin", _FakeStdin())
+    monkeypatch.setattr(terminal_mod.termios, "tcgetattr", lambda fd: [])
+    monkeypatch.setattr(terminal_mod.termios, "tcsetattr", lambda fd, when, attrs: None)
+    monkeypatch.setattr(terminal_mod.tty, "setraw", lambda fd: None)
+
+    terminal = Terminal(_FakeConn(b""), logger=None)
+    terminal._running = True
+
+    thread = threading.Thread(target=terminal._writer, daemon=True)
+    try:
+        thread.start()
+        thread.join(2.0)
+        assert not thread.is_alive()
+    finally:
+        os.close(read_fd)
+

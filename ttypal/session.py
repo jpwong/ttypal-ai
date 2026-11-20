@@ -74,6 +74,29 @@ def is_session_alive(name):
         return False
 
 
+def is_socket_alive(path):
+    """Check whether a ttypal UNIX socket still has a live server behind it.
+
+    A killed instance may leave the socket file behind; the pathname alone is
+    not evidence that a session is running. Connecting is side-effect free:
+    the server only waits for a request line and drops the connection.
+    """
+    import socket
+
+    sock_path = str(path)
+    if not os.path.exists(sock_path):
+        return False
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(0.2)
+    try:
+        s.connect(sock_path)
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
 def remove_session(name, pid=None):
     """Remove session metadata file.
 
@@ -126,7 +149,7 @@ def resolve_socket(*, session=None, board=None):
             return info["socket"]
         # Fallback: check if .sock file exists and is a live socket
         sock_path = SESSION_DIR / f"ttypal-{session}.sock"
-        if sock_path.exists():
+        if is_socket_alive(sock_path):
             return str(sock_path)
         raise SessionNotFound(f"Session '{session}' not found or not running")
 
@@ -143,7 +166,7 @@ def resolve_socket(*, session=None, board=None):
             )
         # Fallback: check .sock file by board name
         sock_path = SESSION_DIR / f"ttypal-{board}.sock"
-        if sock_path.exists():
+        if is_socket_alive(sock_path):
             return str(sock_path)
         raise BoardSessionNotFound(
             f"板子 '{board}' 的 ttypal 未运行 (未找到匹配的 session)"
@@ -161,7 +184,7 @@ def resolve_socket(*, session=None, board=None):
         )
 
     # Fallback: scan for .sock files without .session metadata
-    sock_files = list(SESSION_DIR.glob("ttypal-*.sock"))
+    sock_files = [p for p in SESSION_DIR.glob("ttypal-*.sock") if is_socket_alive(p)]
     if len(sock_files) == 1:
         return str(sock_files[0])
     if len(sock_files) > 1:

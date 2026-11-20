@@ -52,9 +52,22 @@ class SerialConnection:
             except (OSError, io.UnsupportedOperation):
                 pass
         except OSError:
+            holder = self._read_lock_holder()
             self._lock_fd.close()
             self._lock_fd = None
-            raise RuntimeError(f"串口 {self.port} 已被其他 ttypal 实例占用")
+            detail = f" (PID {holder})" if holder else ""
+            hint = f"\n  提示: 确认无误后可执行 kill {holder} 结束该实例" if holder else ""
+            raise RuntimeError(
+                f"串口 {self.port} 已被其他 ttypal 实例占用{detail}{hint}")
+
+    def _read_lock_holder(self):
+        """Best-effort read of the PID the current lock holder wrote."""
+        try:
+            self._lock_fd.seek(0)
+            text = self._lock_fd.read(32).strip()
+        except (OSError, ValueError, io.UnsupportedOperation):
+            return None
+        return text if text.isdigit() else None
 
     def _release_lock(self):
         if self._lock_fd:
@@ -63,19 +76,34 @@ class SerialConnection:
             self._lock_fd = None
 
     def open(self):
+        if self.is_open:
+            return
         self._acquire_lock()
-        self._serial = serial.Serial(
-            port=self.port,
-            baudrate=self.baudrate,
-            bytesize=self.bytesize,
-            parity=self.parity,
-            stopbits=self.stopbits,
-            rtscts=self.rtscts,
-            dsrdtr=False,
-            timeout=0.1,
-        )
-        self._serial.dtr = self.dtr
-        self._serial.rts = self.rts
+        try:
+            self._serial = serial.Serial(
+                port=self.port,
+                baudrate=self.baudrate,
+                bytesize=self.bytesize,
+                parity=self.parity,
+                stopbits=self.stopbits,
+                rtscts=self.rtscts,
+                dsrdtr=False,
+                timeout=0.1,
+            )
+            self._serial.dtr = self.dtr
+            self._serial.rts = self.rts
+        except Exception:
+            # Never keep the flock when the port failed to open: the failed
+            # instance would otherwise block every later attempt (including
+            # its own reconnect) for as long as it lives.
+            if self._serial is not None:
+                try:
+                    self._serial.close()
+                except Exception:
+                    pass
+                self._serial = None
+            self._release_lock()
+            raise
 
     def close(self):
         if self._serial and self._serial.is_open:

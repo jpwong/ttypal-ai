@@ -75,9 +75,15 @@ class Terminal:
 
         try:
             while self._running:
-                ch = os.read(fd, 1)
+                try:
+                    ch = os.read(fd, 1)
+                except OSError:
+                    # stdin went away (pty hangup) — stop instead of spinning
+                    # forever and keeping the serial lock held.
+                    break
                 if not ch:
-                    continue
+                    # EOF on stdin: the controlling terminal is gone.
+                    break
 
                 b = ch[0]
 
@@ -136,7 +142,10 @@ class Terminal:
 
                 self.conn.write(ch)
         finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, self._old_termios)
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, self._old_termios)
+            except (termios.error, OSError):
+                pass
 
     def _show_help(self):
         macro_lines = ""

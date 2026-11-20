@@ -11,6 +11,28 @@ from ttypal.socket_server import SocketServer
 from ttypal.terminal import Terminal
 
 
+def _session_conflict(session_name, sock_path):
+    """Return a message if another live instance already owns this session name."""
+    from ttypal.session import is_socket_alive, load_session
+
+    if not is_socket_alive(sock_path):
+        return None
+
+    info = load_session(session_name) or {}
+    pid = info.get("pid")
+    if not pid:
+        return (
+            f"会话 '{session_name}' 已被另一个 ttypal 实例使用 (socket: {sock_path})\n"
+            f"  提示: 用 -S 指定不同的 session 名称"
+        )
+    port = info.get("port")
+    where = f"PID {pid}" + (f", 端口 {port}" if port else "")
+    return (
+        f"会话 '{session_name}' 已被另一个 ttypal 实例使用 ({where})\n"
+        f"  提示: 用 -S 指定不同的 session 名称，或先结束该实例"
+    )
+
+
 def _resolve_raw_output(args, cfg):
     """CLI override wins; otherwise use [terminal] raw from the board config."""
     terminal_cfg = cfg.get("terminal")
@@ -89,15 +111,30 @@ def main():
     log_cfg = cfg.get("log", {})
     sock_cfg = cfg.get("socket", {})
 
+    sock_path = f"/tmp/ttypal-{session_name}.sock"
+    prompt = sock_cfg.get("prompt", "# ")
+
+    if not args.replay:
+        conflict = _session_conflict(session_name, sock_path)
+        if conflict:
+            print(f"\r\n  错误: {conflict}")
+            sys.exit(1)
+
+        # Open the port before creating the log/session state. If startup
+        # fails (port busy, permissions, bad config), the running instance
+        # that already owns this session name must keep its metadata.
+        try:
+            conn.open()
+        except Exception as e:
+            print(f"\r\n  错误: {e}")
+            sys.exit(1)
+
     logger = Logger(
         board_name=session_name,
         directory=log_cfg.get("directory", "~/ttypal-logs"),
         rotate_size_kb=log_cfg.get("rotate_size_kb", 10240),
         timestamp_format=log_cfg.get("timestamp_format", "%y%m%d %H:%M:%S.%f"),
     )
-
-    sock_path = f"/tmp/ttypal-{session_name}.sock"
-    prompt = sock_cfg.get("prompt", "# ")
 
     socket_srv = SocketServer(conn, logger, sock_path, prompt)
 

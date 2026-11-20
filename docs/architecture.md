@@ -83,7 +83,13 @@ Known error codes include `bad_request`, `unknown_command`, `wait_timeout`,
 not localized `message` text.
 
 ### Serial Port Locking
-`serial_conn.py` uses flock on `/tmp/ttypal-<port>.lock` to prevent multiple instances from opening the same port. Lock auto-releases on process exit. The lock file may remain in `/tmp`; this is normal because the active lock is tied to the open file descriptor, not the pathname. For multi-user use, ttypal can acquire the flock through a read-only descriptor if another user owns the leftover lock file; writing the PID into the lock file is best-effort only.
+`serial_conn.py` uses flock on `/tmp/ttypal-<port>.lock` to prevent multiple instances from opening the same port. Lock auto-releases on process exit. The lock file may remain in `/tmp`; this is normal because the active lock is tied to the open file descriptor, not the pathname. For multi-user use, ttypal can acquire the flock through a read-only descriptor if another user owns the leftover lock file. The holder PID is written into the lock file best-effort; when flock is contended the error message includes that PID and a `kill <pid>` hint so a leftover instance can be identified. If the port fails to open (busy, permission, `dtr`/`rts` ioctl) the lock is released immediately, so a failed instance cannot block later starts or its own reconnect.
+
+### Session Metadata Ordering
+`ttypal` writes `/tmp/ttypal-<session>.session` only after the serial port has opened successfully, and refuses to start when another live instance already serves the same session name (i.e. its `/tmp/ttypal-<session>.sock` is connectable). This prevents a failed second launch from overwriting or deleting the running instance's metadata, and prevents two instances from sharing (and unlinking) the same socket. `resolve_socket()` verifies fallback sockets by connecting before returning them, so a killed instance's leftover `.sock` file is not treated as a live session.
+
+### Daemon Startup
+`ttypal-daemon start` forks; the parent waits up to 5 seconds for the socket to appear. It checks `/proc/<pid>/stat` (zombies count as exited) instead of relying on `kill(pid, 0)`, so a child that dies from a serial lock or permission error makes `start` exit non-zero and print the last line of `/tmp/ttypal-daemon-<session>.log` as the reason. The child opens the serial port before writing session metadata, and refuses to start when the session socket is already owned by a live instance, so a failed start leaves no `.session`/`.sock`/`.pid` files behind.
 
 ### Daemon Stop Semantics
 `ttypal-daemon stop` sends SIGTERM and waits for the target daemon process to exit before removing pid/session metadata. This ensures the serial connection has run its shutdown path and released the kernel flock before a follow-up `start` tries to reopen the same physical port. If the process does not exit before the timeout, metadata is left in place and the command reports a stop timeout.
@@ -192,10 +198,6 @@ JSONL, one event per line: `{"t": seconds, "dir": "rx"|"tx", "hex": "hexstring"}
 - `ttypal-daemon status` currently treats a live PID as running even when the
   daemon socket is unreachable. It should distinguish healthy, unreachable,
   stale metadata, and permission-denied cross-user sessions.
-- `ttypal-daemon start` can print "启动中" even if the daemon exits shortly
-  after startup due to serial lock/permission issues. Startup should wait for
-  initialization and socket readiness, then return non-zero with the real
-  failure reason when the daemon cannot serve requests.
 - `expect_send` / `--wait-for` only accepts a stale (pre-request) match while it
   remains at the end of the log. It can still match the last prompt of the
   previous console state if the request races ahead of the reboot output; use a

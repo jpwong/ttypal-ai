@@ -125,7 +125,9 @@
 | 用例 | 说明 |
 |------|------|
 | test_lock_file_readonly_still_acquires_flock | 其他用户遗留的只读 lock 文件仍可通过只读 fd 获取 flock |
-| test_lock_file_contention_raises_runtime_error | 同一串口已有实例持锁时，第二个实例启动失败 |
+| test_lock_file_contention_raises_runtime_error | 同一串口已有实例持锁时，第二个实例启动失败，错误信息包含 holder PID 和 `kill` 提示 |
+| test_open_failure_releases_lock | `serial.Serial()` 打开失败后立即释放 flock，后续实例/重连仍可获取 |
+| test_open_is_idempotent | 重复调用 `open()` 不会重复打开串口或二次加锁 |
 | test_read_returns_available_data | 有数据时一次读出全部可用字节 |
 | test_read_honours_size_limit | 传入 size 时最多返回 size 字节，剩余数据保留到下次读取 |
 | test_read_zero_returns_all_available | `read(0)` 与旧行为一致，读取全部可用字节 |
@@ -155,8 +157,9 @@
 |------|------|
 | test_reader_sanitizes_terminal_but_logs_raw_bytes | 交互模式终端输出转义 SO，日志仍收到原始字节 |
 | test_reader_raw_mode_forwards_bytes_verbatim | `raw=True` 时终端输出与日志都保持原始字节 |
+| test_writer_exits_when_stdin_reaches_eof | stdin EOF 时 `_writer` 退出，不会空转并一直占着串口锁 |
 
-## test_main.py — raw 模式解析
+## test_main.py — raw 模式解析与会话冲突
 
 | 用例 | 说明 |
 |------|------|
@@ -165,6 +168,22 @@
 | test_cli_raw_overrides_false_config | `--raw` 覆盖配置中的 false |
 | test_cli_no_raw_overrides_true_config | `--no-raw` 覆盖配置中的 true |
 | test_raw_ignores_invalid_terminal_section | `[terminal]` 类型异常时安全回退到转义模式 |
+| test_session_conflict_none_without_socket | 没有 socket 文件时允许启动 |
+| test_session_conflict_ignores_stale_socket | 残留（无人监听）的 socket 文件不阻止启动 |
+| test_session_conflict_reports_pid | 同名 session 已被占用时报错包含 PID、端口和 `-S` 提示 |
+| test_session_conflict_without_metadata | 元数据缺失但 socket 仍可连接时同样拒绝启动 |
+
+## test_session.py — Session 发现与解析
+
+| 用例 | 说明 |
+|------|------|
+| test_is_socket_alive_detects_server | 有服务端监听时 `is_socket_alive()` 返回 True |
+| test_is_socket_alive_rejects_stale_file | 进程被杀后残留的 socket 文件返回 False |
+| test_is_socket_alive_missing_path | 路径不存在时返回 False |
+| test_session_fallback_ignores_stale_socket | `-S` 回退查找忽略残留 socket，报 SessionNotFound |
+| test_session_fallback_accepts_live_socket | 元数据缺失但 socket 存活时仍能按 `-S` 找到 |
+| test_board_fallback_ignores_stale_socket | `-b` 回退查找忽略残留 socket，报 BoardSessionNotFound |
+| test_auto_detect_ignores_stale_socket | 自动发现在只有残留 socket 时报 SessionNotFound |
 
 ## test_tail.py — 日志读取 (ttypal-tail)
 
@@ -232,6 +251,9 @@
 | test_stop_waits_for_exit_before_cleanup | stop 发送 SIGTERM 后等待进程退出，再清理 PID 和 session 元数据 |
 | test_stop_timeout_keeps_session_metadata | stop 等待退出超时时报告超时，并保留 PID 和 session 元数据 |
 | test_status_session_ignores_stale_metadata | `status -S` 遇到 stale session 元数据时报告未运行 |
+| test_last_log_line_returns_last_non_empty | 从 daemon 日志提取最后一条非空行作为失败原因 |
+| test_last_log_line_missing_file | daemon 日志不存在时返回 None |
+| test_start_reports_dead_child_with_reason | 子进程启动失败时 `start` 返回非 0，并打印日志中的失败原因 |
 
 ## test_macro.py — 宏录制/播放
 
